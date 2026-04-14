@@ -9,12 +9,12 @@ import { importParticipantsCSV, getCSVImportStatus, csvTemplateUrl } from "../ap
 const POLL_MS = 2000;
 
 const STATUS_CONFIG = {
-  pending:     { icon: Loader,      color: "text-x-faint",    spin: true,  label: "Waiting..." },
-  searching:   { icon: Link2,       color: "text-lime",        spin: false, label: "Searching LinkedIn..." },
-  downloading: { icon: Loader,      color: "text-lime",        spin: true,  label: "Downloading photo..." },
-  done:        { icon: CheckCircle, color: "text-lime",        spin: false, label: "Photo ready" },
-  needs_photo: { icon: AlertCircle, color: "text-yellow-400",  spin: false, label: "Upload manually" },
-  failed:      { icon: AlertCircle, color: "text-red-400",     spin: false, label: "Failed" },
+  pending:     { icon: Loader,      color: "text-x-faint",    spin: true,  label: "Esperando..." },
+  searching:   { icon: Link2,       color: "text-lime",        spin: false, label: "Buscando en LinkedIn..." },
+  downloading: { icon: Loader,      color: "text-lime",        spin: true,  label: "Descargando foto..." },
+  done:        { icon: CheckCircle, color: "text-lime",        spin: false, label: "Foto lista" },
+  needs_photo: { icon: AlertCircle, color: "text-yellow-400",  spin: false, label: "Subir foto manualmente" },
+  failed:      { icon: AlertCircle, color: "text-red-400",     spin: false, label: "Fallido" },
 };
 
 export default function ImportCSVModal({ onClose, onImportDone }) {
@@ -25,7 +25,7 @@ export default function ImportCSVModal({ onClose, onImportDone }) {
   const [error, setError] = useState("");
   const pollRef = useRef(null);
 
-  // ── Poll ──────────────────────────────────────────────────────────
+  // ── Polling ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!importId) return;
     const poll = async () => {
@@ -45,7 +45,7 @@ export default function ImportCSVModal({ onClose, onImportDone }) {
     return () => clearTimeout(pollRef.current);
   }, [importId]);
 
-  // ── Drop ──────────────────────────────────────────────────────────
+  // ── Drop ─────────────────────────────────────────────────────────
   const onDrop = useCallback(async (files) => {
     const file = files[0];
     if (!file) return;
@@ -56,7 +56,7 @@ export default function ImportCSVModal({ onClose, onImportDone }) {
       setImportId(result.import_id);
       setStep("progress");
     } catch (err) {
-      setError(err.response?.data?.detail || "Upload failed. Check the file format.");
+      setError(err.response?.data?.detail || "Error al subir. Verifica el formato del archivo.");
     } finally {
       setUploading(false);
     }
@@ -81,9 +81,9 @@ export default function ImportCSVModal({ onClose, onImportDone }) {
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-x-border shrink-0">
           <div>
-            <h2 className="font-bold text-x-text text-lg">Import from CSV</h2>
+            <h2 className="font-bold text-x-text text-lg">Importar desde CSV</h2>
             <p className="text-xs text-x-muted mt-0.5">
-              Upload a list — we'll search LinkedIn and fetch photos automatically
+              Sube una lista — buscamos en LinkedIn y descargamos las fotos automáticamente
             </p>
           </div>
           <button onClick={onClose} className="text-x-faint hover:text-x-muted transition-colors p-1 ml-4">
@@ -91,35 +91,36 @@ export default function ImportCSVModal({ onClose, onImportDone }) {
           </button>
         </div>
 
-        {/* ── Upload step ── */}
+        {/* ── Paso 1: subir ── */}
         {step === "upload" && (
           <div className="p-6 space-y-5 overflow-y-auto">
-            {/* Template */}
+            {/* Plantilla */}
             <a
               href={csvTemplateUrl()}
-              download="participants_template.csv"
+              download="plantilla_participantes.csv"
               className="inline-flex items-center gap-2 text-sm text-lime font-semibold hover:text-lime-dim transition-colors"
             >
               <Download size={14} />
-              Download CSV template
+              Descargar plantilla CSV
             </a>
 
-            {/* Format */}
+            {/* Formato */}
             <div className="border border-x-border rounded-xl p-4 space-y-2">
-              <p className="text-xs font-semibold text-x-muted uppercase tracking-wider mb-2">CSV format</p>
+              <p className="text-xs font-semibold text-x-muted uppercase tracking-wider mb-2">Formato del CSV</p>
               <div className="font-mono bg-x-bg border border-x-border rounded-lg p-3 text-xs overflow-x-auto">
-                <div className="text-x-faint">name,company,linkedin_url</div>
-                <div className="text-x-text mt-1">María García,30X,</div>
-                <div className="text-x-text">John Smith,Acme,https://linkedin.com/in/john</div>
+                <div className="text-x-faint">nombre,telefono,empresa,linkedin_url</div>
+                <div className="text-x-text mt-1">María García,+52 55 1234 5678,30X,</div>
+                <div className="text-x-text">John Smith,+1 415 555 0100,Acme,https://linkedin.com/in/john</div>
               </div>
               <ul className="mt-2 space-y-1 text-xs text-x-muted">
-                <li><span className="text-lime">name</span> — required</li>
-                <li><span className="text-lime">company</span> — optional, improves LinkedIn search</li>
-                <li><span className="text-lime">linkedin_url</span> — optional, skips search if provided</li>
+                <li><span className="text-lime">nombre</span> — requerido (también acepta <span className="text-lime">name</span>)</li>
+                <li><span className="text-lime">telefono</span> — opcional, para enviar fotos por WhatsApp</li>
+                <li><span className="text-lime">empresa</span> — opcional, mejora la búsqueda en LinkedIn</li>
+                <li><span className="text-lime">linkedin_url</span> — opcional, omite la búsqueda si se proporciona</li>
               </ul>
             </div>
 
-            {/* Drop zone */}
+            {/* Zona de drop */}
             <div
               {...getRootProps()}
               className={`
@@ -135,12 +136,12 @@ export default function ImportCSVModal({ onClose, onImportDone }) {
                   : <FileSpreadsheet size={32} className={isDragActive ? "text-lime" : "text-x-faint"} />
                 }
                 {uploading
-                  ? <p className="text-sm text-lime font-semibold">Uploading...</p>
+                  ? <p className="text-sm text-lime font-semibold">Subiendo...</p>
                   : isDragActive
-                    ? <p className="font-semibold text-lime">Drop CSV here</p>
+                    ? <p className="font-semibold text-lime">Suelta el CSV aquí</p>
                     : <>
-                        <p className="font-semibold text-x-text text-sm">Drag & drop your CSV</p>
-                        <p className="text-xs text-x-muted">or click to browse</p>
+                        <p className="font-semibold text-x-text text-sm">Arrastra tu CSV aquí</p>
+                        <p className="text-xs text-x-muted">o haz clic para buscar</p>
                       </>
                 }
               </div>
@@ -155,14 +156,14 @@ export default function ImportCSVModal({ onClose, onImportDone }) {
           </div>
         )}
 
-        {/* ── Progress step ── */}
+        {/* ── Paso 2: progreso ── */}
         {step === "progress" && jobData && (
           <>
-            {/* Summary */}
+            {/* Resumen */}
             <div className="p-6 border-b border-x-border shrink-0 space-y-3">
               <div className="flex items-center justify-between text-sm">
                 <span className={`font-semibold ${jobData.finished ? "text-lime" : "text-x-text"}`}>
-                  {jobData.finished ? "Import complete" : `Processing ${rows.length} participants...`}
+                  {jobData.finished ? "Importación completa" : `Procesando ${rows.length} participantes...`}
                 </span>
                 <span className="text-x-muted text-xs">{jobData.completed}/{rows.length}</span>
               </div>
@@ -175,18 +176,18 @@ export default function ImportCSVModal({ onClose, onImportDone }) {
               {jobData.finished && (
                 <div className="flex gap-5 text-xs">
                   <span className="flex items-center gap-1.5 text-lime">
-                    <CheckCircle size={12} /> {doneCount} photos ready
+                    <CheckCircle size={12} /> {doneCount} fotos listas
                   </span>
                   {needsPhotoCount > 0 && (
                     <span className="flex items-center gap-1.5 text-yellow-400">
-                      <AlertCircle size={12} /> {needsPhotoCount} need manual upload
+                      <AlertCircle size={12} /> {needsPhotoCount} necesitan foto manual
                     </span>
                   )}
                 </div>
               )}
             </div>
 
-            {/* Per-row list */}
+            {/* Lista por fila */}
             <div className="overflow-y-auto flex-1 divide-y divide-x-border">
               {rows.map((row) => {
                 const cfg = STATUS_CONFIG[row.status] || STATUS_CONFIG.pending;
@@ -216,13 +217,13 @@ export default function ImportCSVModal({ onClose, onImportDone }) {
               {jobData.finished ? (
                 <button
                   onClick={onClose}
-                  className="w-full bg-lime text-x-bg rounded-xl py-2.5 text-sm font-bold hover:bg-lime-dim transition-colors"
+                  className="w-full bg-lime text-x-ink rounded-xl py-2.5 text-sm font-bold hover:bg-lime-dim transition-colors"
                 >
-                  Done — view participants
+                  Listo — ver participantes
                 </button>
               ) : (
                 <p className="text-xs text-center text-x-faint">
-                  You can close this window — the import continues in the background.
+                  Puedes cerrar esta ventana — la importación continúa en segundo plano.
                 </p>
               )}
             </div>

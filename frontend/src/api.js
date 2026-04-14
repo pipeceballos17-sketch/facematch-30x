@@ -43,9 +43,10 @@ export const csvTemplateUrl = () =>
   `${api.defaults.baseURL}/api/participants/csv-template`;
 
 // ── Events & matching ──────────────────────────────────────────────
-export const uploadEventZip = (file, eventName, cohortId, onProgress) => {
+export const uploadEventFiles = (files, eventName, cohortId, onProgress) => {
   const fd = new FormData();
-  fd.append("file", file);
+  const fileArray = Array.isArray(files) ? files : [files];
+  fileArray.forEach(f => fd.append("files", f));
   if (eventName) fd.append("event_name", eventName);
   if (cohortId)  fd.append("cohort_id", cohortId);
   return api.post("/api/events/upload", fd, { onUploadProgress: onProgress }).then(r => r.data);
@@ -56,9 +57,42 @@ export const getEventResults = (eventId) =>
   api.get(`/api/events/${eventId}/results`).then(r => r.data);
 export const listEvents = () => api.get("/api/events").then(r => r.data);
 
+export const deleteEvent = (id) => api.delete(`/api/events/${id}`).then(r => r.data);
+
 export const getDownloadUrl    = (eventId, participantId) =>
   `${api.defaults.baseURL}/api/events/${eventId}/download/${participantId}`;
 export const getAllDownloadUrl  = (eventId) =>
   `${api.defaults.baseURL}/api/events/${eventId}/download-all`;
 export const getManifestUrl    = (eventId) =>
   `${api.defaults.baseURL}/api/events/${eventId}/manifest`;
+
+// ── Portal (public participant endpoints) ──────────────────────────
+export const listPortalCohorts = () =>
+  api.get("/api/portal/cohorts").then(r => r.data);
+
+export const getCohortPortalInfo = (cohortId) =>
+  api.get(`/api/cohorts/${cohortId}/portal-info`).then(r => r.data);
+
+export const getEventInfo = (eventId) =>
+  api.get(`/api/events/${eventId}/info`).then(r => r.data);
+
+export const getEventPhotos = (eventId) =>
+  api.get(`/api/events/${eventId}/photos`).then(r => r.data);
+
+export const deleteEventPhoto = (eventId, filename) =>
+  api.delete(`/api/events/${eventId}/photo/${encodeURIComponent(filename)}`).then(r => r.data);
+
+export const matchSelfie = (eventId, file) => {
+  const fd = new FormData();
+  fd.append("file", file);
+  return api.post(`/api/events/${eventId}/match-selfie`, fd).then(r => r.data);
+};
+
+export const getEventPhotoUrl = (eventId, filename) =>
+  `${api.defaults.baseURL}/api/events/${eventId}/photo/${encodeURIComponent(filename)}`;
+
+export const addEventPhotos = (eventId, files) => {
+  const fd = new FormData();
+  files.forEach(f => fd.append("files", f));
+  return api.post(`/api/events/${eventId}/add-photos`, fd).then(r => r.data);
+};

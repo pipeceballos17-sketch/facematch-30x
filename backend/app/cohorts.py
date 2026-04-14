@@ -81,3 +81,12 @@ def delete_cohort(cohort_id: str) -> bool:
         return False
     shutil.rmtree(d)
     return True
+
+
+def remove_event_from_cohort(cohort_id: str, event_id: str):
+    meta = get_cohort(cohort_id)
+    if not meta:
+        return
+    meta["event_ids"] = [e for e in meta.get("event_ids", []) if e != event_id]
+    with open(_meta_path(cohort_id), "w") as f:
+        json.dump(meta, f, indent=2)

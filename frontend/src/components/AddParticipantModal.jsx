@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Loader, UserPlus, Link2 } from "lucide-react";
+import { X, Loader, UserPlus, Link2, ChevronDown } from "lucide-react";
 import { createParticipant, searchLinkedIn } from "../api";
 
 export default function AddParticipantModal({ onClose, onAdded }) {
@@ -11,6 +11,7 @@ export default function AddParticipantModal({ onClose, onAdded }) {
   const [searchResults, setSearchResults] = useState([]);
   const [searchError, setSearchError] = useState("");
   const [adding, setAdding] = useState(false);
+  const [showManualUrl, setShowManualUrl] = useState(false);
 
   const handleLinkedInSearch = async () => {
     if (!name.trim()) return;
@@ -20,11 +21,11 @@ export default function AddParticipantModal({ onClose, onAdded }) {
     try {
       const results = await searchLinkedIn(name.trim(), company.trim() || undefined);
       if (results.length === 0) {
-        setSearchError("No LinkedIn profiles found. Add the participant and upload a photo manually.");
+        setSearchError("No se encontraron perfiles. Agrega el participante y sube una foto manualmente.");
       }
       setSearchResults(results);
     } catch {
-      setSearchError("LinkedIn search failed. Add the participant manually.");
+      setSearchError("Búsqueda fallida. Pega la URL de LinkedIn manualmente o sube una foto.");
     } finally {
       setSearching(false);
     }
@@ -42,7 +43,7 @@ export default function AddParticipantModal({ onClose, onAdded }) {
       const participant = await createParticipant(fd);
       onAdded(participant);
       onClose();
-    } catch { /* ignore */ }
+    } catch { /* ignorar */ }
     finally { setAdding(false); }
   };
 
@@ -51,25 +52,25 @@ export default function AddParticipantModal({ onClose, onAdded }) {
       <div className="bg-x-surface border border-x-border rounded-2xl shadow-2xl w-full max-w-md">
 
         <div className="flex items-center justify-between p-6 border-b border-x-border">
-          <h2 className="font-bold text-x-text text-lg">Add Participant</h2>
+          <h2 className="font-bold text-x-text text-lg">Agregar participante</h2>
           <button onClick={onClose} className="text-x-faint hover:text-x-muted p-1">
             <X size={18} />
           </button>
         </div>
 
         <div className="p-6 space-y-4">
-          <Field label="Full Name *">
+          <Field label="Nombre completo *">
             <input
               autoFocus
               value={name}
               onChange={e => setName(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleLinkedInSearch()}
-              placeholder="e.g. María García"
+              placeholder="ej. María García"
               className={inputCls}
             />
           </Field>
 
-          <Field label="Phone Number">
+          <Field label="Teléfono">
             <input
               value={phone}
               onChange={e => setPhone(e.target.value)}
@@ -78,22 +79,23 @@ export default function AddParticipantModal({ onClose, onAdded }) {
             />
           </Field>
 
-          <Field label="Company (optional — improves LinkedIn search)">
+          <Field label="Empresa (opcional — mejora la búsqueda en LinkedIn)">
             <input
               value={company}
               onChange={e => setCompany(e.target.value)}
-              placeholder="e.g. 30X"
+              placeholder="ej. 30X"
               className={inputCls}
             />
           </Field>
 
+          {/* LinkedIn search */}
           <button
             onClick={handleLinkedInSearch}
             disabled={!name.trim() || searching}
             className="w-full flex items-center justify-center gap-2 border border-x-border text-x-muted rounded-xl py-2.5 text-sm hover:text-x-text hover:border-x-border2 disabled:opacity-40 transition-colors"
           >
             {searching ? <Loader size={14} className="animate-spin" /> : <Link2 size={14} />}
-            Search LinkedIn for profile picture
+            Buscar en LinkedIn
           </button>
 
           {searchError && (
@@ -107,7 +109,7 @@ export default function AddParticipantModal({ onClose, onAdded }) {
               {searchResults.map((r, i) => (
                 <button
                   key={i}
-                  onClick={() => { setLinkedinUrl(r.linkedin_url); setSearchResults([]); }}
+                  onClick={() => { setLinkedinUrl(r.linkedin_url); setSearchResults([]); setShowManualUrl(true); }}
                   className="w-full text-left px-4 py-3 hover:bg-x-surface2 transition-colors"
                 >
                   <p className="text-sm font-medium text-x-text">{r.name}</p>
@@ -118,15 +120,30 @@ export default function AddParticipantModal({ onClose, onAdded }) {
             </div>
           )}
 
-          {linkedinUrl && (
-            <Field label="LinkedIn URL">
-              <input
-                value={linkedinUrl}
-                onChange={e => setLinkedinUrl(e.target.value)}
-                className="w-full bg-x-surface2 border border-x-border rounded-xl px-4 py-2 text-xs text-lime/80 outline-none focus:border-lime transition-colors"
-              />
-            </Field>
-          )}
+          {/* Manual LinkedIn URL — always accessible */}
+          <div>
+            <button
+              onClick={() => setShowManualUrl(v => !v)}
+              className="flex items-center gap-1 text-xs text-x-faint hover:text-x-muted transition-colors"
+            >
+              <ChevronDown size={12} className={`transition-transform ${showManualUrl ? "rotate-180" : ""}`} />
+              Pegar URL de LinkedIn manualmente
+            </button>
+
+            {showManualUrl && (
+              <div className="mt-2">
+                <input
+                  value={linkedinUrl}
+                  onChange={e => setLinkedinUrl(e.target.value)}
+                  placeholder="https://linkedin.com/in/nombre"
+                  className="w-full bg-x-surface2 border border-x-border rounded-xl px-4 py-2 text-xs text-lime/80 outline-none focus:border-lime transition-colors"
+                />
+                <p className="text-[10px] text-x-faint mt-1">
+                  El sistema descargará la foto de perfil automáticamente al agregar.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex gap-3 p-6 border-t border-x-border">
@@ -134,15 +151,15 @@ export default function AddParticipantModal({ onClose, onAdded }) {
             onClick={onClose}
             className="flex-1 border border-x-border rounded-xl py-2.5 text-sm text-x-muted hover:text-x-text hover:border-x-border2 transition-colors"
           >
-            Cancel
+            Cancelar
           </button>
           <button
             onClick={handleAdd}
             disabled={!name.trim() || adding}
-            className="flex-1 flex items-center justify-center gap-2 bg-lime text-x-bg rounded-xl py-2.5 text-sm font-bold hover:bg-lime-dim disabled:opacity-40 transition-colors"
+            className="flex-1 flex items-center justify-center gap-2 bg-lime text-x-ink rounded-xl py-2.5 text-sm font-bold hover:bg-lime-dim disabled:opacity-40 transition-colors"
           >
             {adding ? <Loader size={14} className="animate-spin" /> : <UserPlus size={14} />}
-            Add Participant
+            Agregar
           </button>
         </div>
       </div>

@@ -6,7 +6,6 @@ import {
 import { listCohorts, deleteCohort } from "../api";
 import CreateCohortModal from "./CreateCohortModal";
 
-// Maps a cohort's cover_color to a subtle gradient card background
 function CohortCard({ cohort, onClick, onDelete }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -25,15 +24,12 @@ function CohortCard({ cohort, onClick, onDelete }) {
       onClick={onClick}
       className="group relative bg-x-surface border border-x-border rounded-2xl overflow-hidden cursor-pointer hover:border-x-border2 transition-all hover:-translate-y-0.5"
     >
-      {/* Color band accent */}
       <div
         className="h-1.5 w-full"
         style={{ background: cohort.cover_color || "#CCFF47" }}
       />
 
-      {/* Card body */}
       <div className="p-5">
-        {/* Program badge */}
         {cohort.program && (
           <span
             className="inline-block text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full mb-3"
@@ -53,14 +49,12 @@ function CohortCard({ cohort, onClick, onDelete }) {
           <p className="text-xs text-x-muted line-clamp-2 mb-4">{cohort.description}</p>
         )}
 
-        {/* Stats row */}
         <div className="flex gap-4 mt-4">
-          <Stat icon={Camera}  value={cohort.event_count}           label="events" />
-          <Stat icon={Image}   value={cohort.matched_photos}        label="photos" />
-          <Stat icon={Users}   value={cohort.matched_participants}  label="people" />
+          <Stat icon={Camera}  value={cohort.event_count}          label="eventos" />
+          <Stat icon={Image}   value={cohort.matched_photos}       label="fotos" />
+          <Stat icon={Users}   value={cohort.matched_participants} label="caras" />
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-between mt-4 pt-4 border-t border-x-border">
           <div className="flex items-center gap-1.5 text-x-faint text-xs">
             <Calendar size={11} />
@@ -70,7 +64,6 @@ function CohortCard({ cohort, onClick, onDelete }) {
         </div>
       </div>
 
-      {/* Delete button (top-right, visible on hover) */}
       <button
         onClick={handleDelete}
         onMouseLeave={() => setConfirmDelete(false)}
@@ -79,9 +72,9 @@ function CohortCard({ cohort, onClick, onDelete }) {
             ? "bg-red-900/60 border border-red-700 text-red-300"
             : "bg-x-surface2 border border-x-border text-x-faint hover:text-red-400"
           }`}
-        title={confirmDelete ? "Click again to confirm" : "Delete cohort"}
+        title={confirmDelete ? "Clic para confirmar" : "Eliminar cohort"}
       >
-        {confirmDelete ? <span className="px-1 font-semibold">Sure?</span> : <Trash2 size={11} />}
+        {confirmDelete ? <span className="px-1 font-semibold">¿Seguro?</span> : <Trash2 size={11} />}
       </button>
     </div>
   );
@@ -109,7 +102,7 @@ export default function CohortFeed({ onSelectCohort }) {
     try {
       const data = await listCohorts();
       setCohorts(data);
-    } catch { /* backend not ready */ }
+    } catch { /* backend no disponible */ }
     finally { setLoading(false); }
   };
 
@@ -122,24 +115,22 @@ export default function CohortFeed({ onSelectCohort }) {
 
   return (
     <div>
-      {/* Header */}
       <div className="flex items-end justify-between mb-8">
         <div>
           <h2 className="text-2xl font-bold text-x-text">Cohorts</h2>
           <p className="text-x-muted text-sm mt-1">
-            Organize your events by program or edition
+            Organiza tus eventos por programa o edición
           </p>
         </div>
         <button
           onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 bg-lime text-x-bg rounded-xl px-4 py-2.5 text-sm font-bold hover:bg-lime-dim transition-colors lime-glow-sm"
+          className="flex items-center gap-2 bg-lime text-x-ink rounded-xl px-4 py-2.5 text-sm font-bold hover:bg-lime-dim transition-colors"
         >
           <Plus size={16} />
-          New Cohort
+          Nuevo Cohort
         </button>
       </div>
 
-      {/* Loading skeletons */}
       {loading && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {[...Array(3)].map((_, i) => (
@@ -148,27 +139,25 @@ export default function CohortFeed({ onSelectCohort }) {
         </div>
       )}
 
-      {/* Empty state */}
       {!loading && cohorts.length === 0 && (
         <div className="text-center py-28">
           <div className="w-20 h-20 rounded-3xl bg-x-surface2 border border-x-border flex items-center justify-center mx-auto mb-6">
             <FolderOpen size={36} className="text-x-faint" />
           </div>
-          <p className="font-bold text-x-text text-xl">No cohorts yet</p>
+          <p className="font-bold text-x-text text-xl">Sin cohorts todavía</p>
           <p className="text-x-muted text-sm mt-2 max-w-sm mx-auto">
-            Create a cohort for each program or edition to keep your events organized.
+            Crea un cohort por programa o edición para mantener tus eventos organizados.
           </p>
           <button
             onClick={() => setShowCreate(true)}
-            className="mt-6 inline-flex items-center gap-2 bg-lime text-x-bg rounded-xl px-6 py-3 text-sm font-bold hover:bg-lime-dim transition-colors lime-glow-sm"
+            className="mt-6 inline-flex items-center gap-2 bg-lime text-x-ink rounded-xl px-6 py-3 text-sm font-bold hover:bg-lime-dim transition-colors"
           >
             <Plus size={16} />
-            Create your first cohort
+            Crea tu primer cohort
           </button>
         </div>
       )}
 
-      {/* Cohort grid */}
       {!loading && cohorts.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {cohorts.map(c => (
@@ -180,13 +169,12 @@ export default function CohortFeed({ onSelectCohort }) {
             />
           ))}
 
-          {/* Create new card */}
           <button
             onClick={() => setShowCreate(true)}
             className="border-2 border-dashed border-x-border rounded-2xl p-8 flex flex-col items-center justify-center gap-3 text-x-faint hover:border-lime/40 hover:text-lime transition-colors min-h-[200px]"
           >
             <Plus size={28} />
-            <span className="text-sm font-medium">New Cohort</span>
+            <span className="text-sm font-medium">Nuevo Cohort</span>
           </button>
         </div>
       )}

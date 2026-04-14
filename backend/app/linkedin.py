@@ -34,50 +34,127 @@ HEADERS = {
 }
 
 PROXYCURL_API_KEY = os.getenv("PROXYCURL_API_KEY", "")
+APIFY_API_KEY     = os.getenv("APIFY_API_KEY", "")
+APIFY_ACTOR       = "anchor~linkedin-profile-enrichment"
 
 
 async def search_linkedin_google(name: str, company: Optional[str] = None) -> List[LinkedInSearchResult]:
-    """Search Google for LinkedIn profiles matching a name."""
+    """
+    Search for LinkedIn profiles by name.
+    Uses Apify Google Search when APIFY_API_KEY is set (reliable).
+    Falls back to direct DuckDuckGo scraping (may be blocked).
+    """
+    if APIFY_API_KEY:
+        return await _search_linkedin_apify(name, company)
+    return await _search_linkedin_direct(name, company)
+
+
+async def _search_linkedin_apify(name: str, company: Optional[str] = None) -> List[LinkedInSearchResult]:
+    """Use Apify's Google Search scraper to find LinkedIn profile URLs."""
+    import asyncio
+
     query = f"{name} site:linkedin.com/in"
     if company:
         query += f" {company}"
 
-    url = f"https://www.google.com/search?q={httpx.QueryParams({'q': query})}&num=5"
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            r = await client.post(
+                "https://api.apify.com/v2/acts/apify~google-search-scraper/runs",
+                params={"token": APIFY_API_KEY, "memory": 256},
+                json={"queries": query, "resultsPerPage": 5, "maxPagesPerQuery": 1},
+            )
+            r.raise_for_status()
+            run_id = r.json()["data"]["id"]
+        except Exception as e:
+            logger.warning(f"Apify search: failed to start: {e}")
+            return []
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        for _ in range(15):
+            await asyncio.sleep(4)
+            try:
+                s = await client.get(
+                    f"https://api.apify.com/v2/actor-runs/{run_id}",
+                    params={"token": APIFY_API_KEY},
+                )
+                status = s.json()["data"]["status"]
+                if status == "SUCCEEDED":
+                    break
+                if status in ("FAILED", "ABORTED", "TIMED-OUT"):
+                    logger.warning(f"Apify search run ended: {status}")
+                    return []
+            except Exception:
+                continue
+        else:
+            return []
+
+        try:
+            ds = await client.get(
+                f"https://api.apify.com/v2/actor-runs/{run_id}/dataset/items",
+                params={"token": APIFY_API_KEY},
+            )
+            items = ds.json()
+        except Exception as e:
+            logger.warning(f"Apify search: dataset fetch failed: {e}")
+            return []
+
+    results: List[LinkedInSearchResult] = []
+    seen_urls: set = set()
+    for item in items:
+        for res in item.get("organicResults", []):
+            url = res.get("url", "")
+            m = re.search(r"linkedin\.com/in/([^/?&\"'\s<>]+)", url)
+            if m:
+                li_url = f"https://www.linkedin.com/in/{m.group(1)}"
+                if li_url not in seen_urls:
+                    seen_urls.add(li_url)
+                    results.append(LinkedInSearchResult(
+                        name=name,
+                        headline=(res.get("description") or "")[:120] or None,
+                        linkedin_url=li_url,
+                    ))
+            if len(results) >= 5:
+                break
+        if len(results) >= 5:
+            break
+
+    return results
+
+
+async def _search_linkedin_direct(name: str, company: Optional[str] = None) -> List[LinkedInSearchResult]:
+    """Fallback: scrape DuckDuckGo directly (may be blocked by bot detection)."""
+    query = f"{name} site:linkedin.com/in"
+    if company:
+        query += f" {company}"
 
     async with httpx.AsyncClient(headers=HEADERS, follow_redirects=True, timeout=15) as client:
         try:
-            resp = await client.get(url)
+            resp = await client.post(
+                "https://html.duckduckgo.com/html/",
+                data={"q": query, "b": "", "kl": "us-en"},
+            )
             resp.raise_for_status()
         except Exception as e:
-            logger.warning(f"Google search failed: {e}")
+            logger.warning(f"DuckDuckGo search failed: {e}")
             return []
 
     soup = BeautifulSoup(resp.text, "html.parser")
     results: List[LinkedInSearchResult] = []
-
-    # Extract LinkedIn URLs from Google search results
-    seen_urls = set()
+    seen_urls: set = set()
     for a in soup.find_all("a", href=True):
-        href = a["href"]
-        # Google wraps links in /url?q=...
-        match = re.search(r"https://(?:www\.)?linkedin\.com/in/([^&\"'/]+)", href)
-        if match:
-            li_url = f"https://www.linkedin.com/in/{match.group(1)}"
-            if li_url in seen_urls:
-                continue
-            seen_urls.add(li_url)
-
-            # Try to get the text around this link as the name/headline
-            parent_text = a.get_text(strip=True) or name
-            results.append(LinkedInSearchResult(
-                name=name,
-                headline=parent_text[:120] if parent_text != name else None,
-                linkedin_url=li_url,
-            ))
-
+        m = re.search(r"https://(?:www\.)?linkedin\.com/in/([^&\"'/ ]+)", a["href"])
+        if m:
+            li_url = f"https://www.linkedin.com/in/{m.group(1)}"
+            if li_url not in seen_urls:
+                seen_urls.add(li_url)
+                results.append(LinkedInSearchResult(
+                    name=name,
+                    headline=a.get_text(strip=True)[:120] or None,
+                    linkedin_url=li_url,
+                ))
         if len(results) >= 5:
             break
-
     return results
 
 
@@ -145,6 +222,73 @@ async def fetch_profile_pic_proxycurl(linkedin_url: str) -> Optional[str]:
             return None
 
 
+async def fetch_profile_pic_apify(linkedin_url: str) -> Optional[str]:
+    """
+    Use Apify anchor~linkedin-profile-enrichment to get the profile picture URL.
+    Requires APIFY_API_KEY env var.
+    Uses run → poll → dataset pattern (sync endpoint unreliable for this actor).
+    """
+    if not APIFY_API_KEY:
+        return None
+
+    import asyncio
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            # 1. Launch run
+            r = await client.post(
+                f"https://api.apify.com/v2/acts/{APIFY_ACTOR}/runs",
+                params={"token": APIFY_API_KEY, "memory": 256},
+                json={"profileUrls": [linkedin_url]},
+            )
+            r.raise_for_status()
+            run_id = r.json()["data"]["id"]
+        except Exception as e:
+            logger.warning(f"Apify: failed to start run for {linkedin_url}: {e}")
+            return None
+
+    # 2. Poll until done (max 60 s)
+    async with httpx.AsyncClient(timeout=15) as client:
+        for _ in range(15):
+            await asyncio.sleep(4)
+            try:
+                s = await client.get(
+                    f"https://api.apify.com/v2/actor-runs/{run_id}",
+                    params={"token": APIFY_API_KEY},
+                )
+                status = s.json()["data"]["status"]
+                if status == "SUCCEEDED":
+                    break
+                if status in ("FAILED", "ABORTED", "TIMED-OUT"):
+                    logger.warning(f"Apify run {run_id} ended with status: {status}")
+                    return None
+            except Exception:
+                continue
+        else:
+            logger.warning(f"Apify run {run_id} timed out waiting")
+            return None
+
+        # 3. Fetch dataset
+        try:
+            ds = await client.get(
+                f"https://api.apify.com/v2/actor-runs/{run_id}/dataset/items",
+                params={"token": APIFY_API_KEY},
+            )
+            ds.raise_for_status()
+            items = ds.json()
+            if not items:
+                logger.warning(f"Apify: empty dataset for {linkedin_url}")
+                return None
+            pic = items[0].get("profile_pic_url")
+            if pic and isinstance(pic, str) and pic.startswith("http"):
+                return pic
+            logger.warning(f"Apify: no profile_pic_url in result for {linkedin_url}")
+            return None
+        except Exception as e:
+            logger.warning(f"Apify: failed to fetch dataset for run {run_id}: {e}")
+            return None
+
+
 async def download_image(url: str, dest_path: str) -> bool:
     """Download an image from a URL to disk. Returns True on success."""
     async with httpx.AsyncClient(headers=HEADERS, follow_redirects=True, timeout=20) as client:
@@ -164,9 +308,18 @@ async def download_image(url: str, dest_path: str) -> bool:
 
 
 async def get_profile_pic_url(linkedin_url: str) -> Optional[str]:
-    """Try Proxycurl first (if key set), then direct scraping."""
+    """
+    Priority:
+    1. Proxycurl (if PROXYCURL_API_KEY set) — más rápido
+    2. Apify     (if APIFY_API_KEY set)     — muy confiable
+    3. Scraping directo                      — funciona solo con perfiles públicos
+    """
     if PROXYCURL_API_KEY:
         url = await fetch_profile_pic_proxycurl(linkedin_url)
+        if url:
+            return url
+    if APIFY_API_KEY:
+        url = await fetch_profile_pic_apify(linkedin_url)
         if url:
             return url
     return await fetch_linkedin_profile_pic(linkedin_url)

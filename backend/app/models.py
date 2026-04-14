@@ -54,6 +54,7 @@ class MatchResult(BaseModel):
 
 class ProcessingStatus(BaseModel):
     event_id: str
+    event_name: Optional[str] = None
     status: str  # "pending" | "processing" | "done" | "error"
     total_photos: int
     processed_photos: int

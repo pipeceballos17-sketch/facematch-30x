@@ -7,6 +7,11 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
+from fastapi.concurrency import run_in_threadpool
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent.parent / ".env")
+
 import aiofiles
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse
@@ -16,8 +21,6 @@ from app.models import (
     Participant,
     LinkedInSearchResult,
     ProcessingStatus,
-    ProcessingResult,
-    MatchResult,
     Cohort,
 )
 from app import linkedin as li
@@ -61,9 +64,8 @@ async def list_cohorts():
             if rp.exists():
                 with open(rp) as f:
                     d = json.load(f)
-                matches = d.get("matches", {})
-                total_matched_participants += len(matches)
-                total_matched_photos += sum(len(v) for v in matches.values())
+                total_matched_photos += d.get("total_photos", 0)
+                total_matched_participants += d.get("indexed_faces", 0)
         result.append(Cohort(
             id=c["id"],
             name=c["name"],
@@ -124,14 +126,12 @@ async def get_cohort_events(cohort_id: str):
             with open(rp) as f:
                 d = json.load(f)
             status_obj = processing_jobs.get(eid)
-            matches = d.get("matches", {})
             events.append({
                 "event_id": eid,
                 "event_name": d.get("event_name", eid),
                 "status": status_obj.status if status_obj else "done",
-                "total_photos": len(d.get("unmatched", [])) + sum(len(v) for v in matches.values()),
-                "matched_photos": sum(len(v) for v in matches.values()),
-                "matched_participants": len(matches),
+                "total_photos": d.get("total_photos", 0),
+                "indexed_faces": d.get("indexed_faces", 0),
                 "created_at": d.get("created_at", ""),
             })
         else:
@@ -139,11 +139,10 @@ async def get_cohort_events(cohort_id: str):
             if status_obj:
                 events.append({
                     "event_id": eid,
-                    "event_name": status_obj.message or eid,
+                    "event_name": status_obj.event_name or eid,
                     "status": status_obj.status,
                     "total_photos": status_obj.total_photos,
-                    "matched_photos": 0,
-                    "matched_participants": 0,
+                    "indexed_faces": 0,
                     "created_at": "",
                 })
     return events
@@ -258,7 +257,7 @@ async def fetch_linkedin_photo(participant_id: str, linkedin_url: str = Form(...
 @app.get("/api/participants/csv-template")
 async def download_csv_template():
     content = (
-        "name,phone,company,linkedin_url\n"
+        "nombre,telefono,empresa,linkedin_url\n"
         "María García,+52 55 1234 5678,30X,\n"
         "John Smith,+1 415 555 0100,Acme,https://linkedin.com/in/johnsmith\n"
     )
@@ -276,22 +275,28 @@ async def import_participants_csv(
 ):
     content = await file.read()
     text = content.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text))
+    # Auto-detect delimiter (Excel en español usa punto y coma)
+    try:
+        dialect = csv.Sniffer().sniff(text[:2048], delimiters=",;\t|")
+        delimiter = dialect.delimiter
+    except csv.Error:
+        delimiter = ","
+    reader = csv.DictReader(io.StringIO(text), dialect=csv.excel, delimiter=delimiter)
 
     rows = []
     for row in reader:
-        name = (row.get("name") or row.get("Name") or "").strip()
+        name = (row.get("Nombre") or row.get("nombre") or row.get("name") or row.get("Name") or "").strip()
         if not name:
             continue
         rows.append({
             "name": name,
-            "phone": (row.get("phone") or row.get("Phone") or row.get("telefono") or "").strip() or None,
-            "company": (row.get("company") or row.get("Company") or "").strip() or None,
+            "phone": (row.get("Teléfono") or row.get("Telefono") or row.get("teléfono") or row.get("telefono") or row.get("phone") or row.get("Phone") or "").strip() or None,
+            "company": (row.get("Empresa") or row.get("empresa") or row.get("company") or row.get("Company") or "").strip() or None,
             "linkedin_url": (row.get("linkedin_url") or row.get("LinkedIn") or row.get("linkedin") or "").strip() or None,
         })
 
     if not rows:
-        raise HTTPException(status_code=400, detail="CSV has no valid rows. Make sure it has a 'name' column.")
+        raise HTTPException(status_code=400, detail="El CSV no tiene filas válidas. Asegúrate de que tenga una columna 'nombre' o 'name'.")
 
     import_id = str(uuid.uuid4())
     participant_ids = []
@@ -398,42 +403,72 @@ async def get_csv_import_status(import_id: str):
 @app.post("/api/events/upload")
 async def upload_event_photos(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
+    files: List[UploadFile] = File(...),
     event_name: Optional[str] = Form(None),
     cohort_id: Optional[str] = Form(None),
 ):
-    if not file.filename.lower().endswith(".zip"):
-        raise HTTPException(status_code=400, detail="Only ZIP files are accepted.")
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided.")
 
-    # Validate cohort if provided
     if cohort_id:
         c = co.get_cohort(cohort_id)
         if not c:
             raise HTTPException(status_code=404, detail="Cohort not found")
 
     event_id = str(uuid.uuid4())
-    zip_path = TEMP_DIR / f"{event_id}.zip"
+    is_zip = len(files) == 1 and files[0].filename.lower().endswith(".zip")
 
-    async with aiofiles.open(zip_path, "wb") as f:
-        content = await file.read()
-        await f.write(content)
+    if is_zip:
+        zip_path = TEMP_DIR / f"{event_id}.zip"
+        async with aiofiles.open(zip_path, "wb") as f:
+            content = await files[0].read()
+            await f.write(content)
+        upload_label = files[0].filename
 
-    processing_jobs[event_id] = ProcessingStatus(
-        event_id=event_id,
-        status="pending",
-        total_photos=0,
-        processed_photos=0,
-        message=f"Uploaded: {file.filename}",
-    )
+        resolved_name = event_name or files[0].filename.replace(".zip", "")
+        processing_jobs[event_id] = ProcessingStatus(
+            event_id=event_id, event_name=resolved_name, status="pending",
+            total_photos=0, processed_photos=0,
+            message=f"Uploaded: {upload_label}",
+        )
+        if cohort_id:
+            co.add_event_to_cohort(cohort_id, event_id)
+        background_tasks.add_task(
+            process_event, event_id, str(zip_path), resolved_name, cohort_id,
+        )
+    else:
+        # Individual image files — save directly to event dir
+        event_dir = fe.EVENTS_DIR / event_id
+        event_dir.mkdir(parents=True, exist_ok=True)
+        image_paths = []
+        for upload in files:
+            ext = Path(upload.filename).suffix.lower()
+            if ext not in fe.SUPPORTED_EXTENSIONS:
+                continue
+            dest = event_dir / f"{uuid.uuid4()}{ext}"
+            async with aiofiles.open(dest, "wb") as f:
+                content = await upload.read()
+                await f.write(content)
+            image_paths.append(dest)
 
-    if cohort_id:
-        co.add_event_to_cohort(cohort_id, event_id)
+        if not image_paths:
+            raise HTTPException(status_code=400, detail="No valid image files found.")
 
-    background_tasks.add_task(
-        process_event, event_id, str(zip_path),
-        event_name or file.filename.replace(".zip", ""),
-        cohort_id,
-    )
+        upload_label = f"{len(image_paths)} foto(s)"
+        resolved_name = event_name or "Evento"
+        processing_jobs[event_id] = ProcessingStatus(
+            event_id=event_id, event_name=resolved_name, status="pending",
+            total_photos=len(image_paths), processed_photos=0,
+            message=f"Uploaded: {upload_label}",
+        )
+        if cohort_id:
+            co.add_event_to_cohort(cohort_id, event_id)
+        background_tasks.add_task(
+            process_event_images, event_id, image_paths,
+            resolved_name,
+            cohort_id,
+        )
+
     return {"event_id": event_id, "status": "pending"}
 
 
@@ -457,16 +492,15 @@ def process_event(event_id: str, zip_path: str, event_name: str, cohort_id: Opti
             processing_jobs[event_id].processed_photos = i
             processing_jobs[event_id].message = f"({i}/{total}) {filename}"
 
-        result = fe.run_face_matching(event_id, image_paths, status_callback=status_cb)
+        result = fe.preprocess_event_faces(event_id, image_paths, status_callback=status_cb)
 
         result_meta = {
             "event_id": event_id,
             "event_name": event_name,
             "cohort_id": cohort_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "matches": result["matches"],
-            "unmatched": result["unmatched"],
-            "total_faces": result["total_faces"],
+            "total_photos": result["total_photos"],
+            "indexed_faces": result["indexed_faces"],
         }
         result_path = fe.RESULTS_DIR / event_id / "result.json"
         with open(result_path, "w") as f:
@@ -475,13 +509,51 @@ def process_event(event_id: str, zip_path: str, event_name: str, cohort_id: Opti
         processing_jobs[event_id].status = "done"
         processing_jobs[event_id].processed_photos = total
         processing_jobs[event_id].message = (
-            f"Done. {sum(len(v) for v in result['matches'].values())} photos matched "
-            f"across {len(result['matches'])} participants."
+            f"Listo. {result['total_photos']} fotos indexadas, "
+            f"{result['indexed_faces']} caras detectadas."
         )
         Path(zip_path).unlink(missing_ok=True)
 
     except Exception as e:
         logger.exception(f"Error processing event {event_id}")
+        processing_jobs[event_id].status = "error"
+        processing_jobs[event_id].message = str(e)
+
+
+def process_event_images(event_id: str, image_paths: list, event_name: str, cohort_id: Optional[str]):
+    from datetime import datetime, timezone
+    try:
+        processing_jobs[event_id].status = "processing"
+        total = len(image_paths)
+        processing_jobs[event_id].total_photos = total
+        processing_jobs[event_id].message = f"Processing {total} photos..."
+
+        def status_cb(i, total, filename):
+            processing_jobs[event_id].processed_photos = i
+            processing_jobs[event_id].message = f"({i}/{total}) {filename}"
+
+        result = fe.preprocess_event_faces(event_id, image_paths, status_callback=status_cb)
+
+        result_meta = {
+            "event_id": event_id,
+            "event_name": event_name,
+            "cohort_id": cohort_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "total_photos": result["total_photos"],
+            "indexed_faces": result["indexed_faces"],
+        }
+        result_path = fe.RESULTS_DIR / event_id / "result.json"
+        with open(result_path, "w") as f:
+            json.dump(result_meta, f, indent=2)
+
+        processing_jobs[event_id].status = "done"
+        processing_jobs[event_id].processed_photos = total
+        processing_jobs[event_id].message = (
+            f"Listo. {result['total_photos']} fotos indexadas, "
+            f"{result['indexed_faces']} caras detectadas."
+        )
+    except Exception as e:
+        logger.exception(f"Error processing event images {event_id}")
         processing_jobs[event_id].status = "error"
         processing_jobs[event_id].message = str(e)
 
@@ -493,36 +565,21 @@ async def get_event_status(event_id: str):
     return processing_jobs[event_id]
 
 
-@app.get("/api/events/{event_id}/results", response_model=ProcessingResult)
+@app.get("/api/events/{event_id}/results")
 async def get_event_results(event_id: str):
     result_path = fe.RESULTS_DIR / event_id / "result.json"
     if not result_path.exists():
         raise HTTPException(status_code=404, detail="Results not ready yet")
-
     with open(result_path) as f:
         data = json.load(f)
-
-    participants = {p["id"]: p for p in fe.list_participants()}
-
-    match_results = []
-    for pid, photos in data["matches"].items():
-        p = participants.get(pid, {"name": "Unknown"})
-        match_results.append(MatchResult(
-            participant_id=pid,
-            participant_name=p.get("name", "Unknown"),
-            participant_phone=p.get("phone"),
-            photo_filenames=photos,
-            match_count=len(photos),
-        ))
-
-    return ProcessingResult(
-        event_id=event_id,
-        event_name=data.get("event_name", event_id),
-        cohort_id=data.get("cohort_id"),
-        matches=match_results,
-        unmatched_photos=data["unmatched"],
-        total_faces_detected=data["total_faces"],
-    )
+    return {
+        "event_id": event_id,
+        "event_name": data.get("event_name", event_id),
+        "cohort_id": data.get("cohort_id"),
+        "total_photos": data.get("total_photos", 0),
+        "indexed_faces": data.get("indexed_faces", 0),
+        "created_at": data.get("created_at", ""),
+    }
 
 
 @app.get("/api/events/{event_id}/download/{participant_id}")
@@ -547,10 +604,7 @@ async def download_all_results(event_id: str):
 
 @app.get("/api/events/{event_id}/manifest")
 async def download_manifest(event_id: str):
-    """
-    Download a CSV manifest: name, phone, matched_photo_count, photo_filenames.
-    This is the 'name + number' output — who is in which photos.
-    """
+    """Export a CSV with all participants and their reference photo status."""
     result_path = fe.RESULTS_DIR / event_id / "result.json"
     if not result_path.exists():
         raise HTTPException(status_code=404, detail="Results not ready yet")
@@ -558,19 +612,16 @@ async def download_manifest(event_id: str):
     with open(result_path) as f:
         data = json.load(f)
 
-    participants = {p["id"]: p for p in fe.list_participants()}
-
+    participants = fe.list_participants()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["name", "phone", "company", "matched_photos", "photo_count"])
-    for pid, photos in data["matches"].items():
-        p = participants.get(pid, {})
+    writer.writerow(["name", "phone", "company", "has_reference_photo"])
+    for p in participants:
         writer.writerow([
-            p.get("name", "Unknown"),
+            p.get("name", ""),
             p.get("phone", ""),
             p.get("company", ""),
-            "; ".join(photos),
-            len(photos),
+            "si" if fe.get_reference_photo_path(p["id"]) else "no",
         ])
     output.seek(0)
 
@@ -578,8 +629,33 @@ async def download_manifest(event_id: str):
     return StreamingResponse(
         output,
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={event_name}_manifest.csv"},
+        headers={"Content-Disposition": f"attachment; filename={event_name}_participantes.csv"},
     )
+
+
+@app.delete("/api/events/{event_id}")
+async def delete_event(event_id: str):
+    import shutil
+    result_path = fe.RESULTS_DIR / event_id / "result.json"
+    cohort_id = None
+    if result_path.exists():
+        with open(result_path) as f:
+            data = json.load(f)
+        cohort_id = data.get("cohort_id")
+
+    if cohort_id:
+        co.remove_event_from_cohort(cohort_id, event_id)
+
+    results_dir = fe.RESULTS_DIR / event_id
+    if results_dir.exists():
+        shutil.rmtree(results_dir)
+
+    events_dir = fe.RESULTS_DIR.parent / "events" / event_id
+    if events_dir.exists():
+        shutil.rmtree(events_dir)
+
+    processing_jobs.pop(event_id, None)
+    return {"ok": True}
 
 
 @app.get("/api/events")
@@ -592,18 +668,198 @@ async def list_events():
                 if rp.exists():
                     with open(rp) as f:
                         data = json.load(f)
-                    matches = data.get("matches", {})
                     status = processing_jobs.get(d.name)
                     events.append({
                         "event_id": d.name,
                         "event_name": data.get("event_name", d.name),
                         "cohort_id": data.get("cohort_id"),
                         "status": status.status if status else "done",
-                        "matched_photos": sum(len(v) for v in matches.values()),
-                        "matched_participants": len(matches),
+                        "total_photos": data.get("total_photos", 0),
+                        "indexed_faces": data.get("indexed_faces", 0),
                         "created_at": data.get("created_at", ""),
                     })
     return events
+
+
+# ═══════════════════════════════════════════════════════════════════
+# PORTAL (public — no auth required)
+# ═══════════════════════════════════════════════════════════════════
+
+@app.get("/api/portal/cohorts")
+async def list_portal_cohorts():
+    """Public: list all cohorts that have at least one processed event."""
+    raw = co.list_cohorts()
+    result = []
+    for c in raw:
+        event_ids = c.get("event_ids", [])
+        total_photos = 0
+        for eid in event_ids:
+            rp = fe.RESULTS_DIR / eid / "result.json"
+            if rp.exists():
+                with open(rp) as f:
+                    d = json.load(f)
+                total_photos += d.get("total_photos", 0)
+        result.append({
+            "cohort_id": c["id"],
+            "cohort_name": c["name"],
+            "program": c.get("program"),
+            "cover_color": c.get("cover_color"),
+            "total_photos": total_photos,
+            "event_count": len([e for e in event_ids if (fe.RESULTS_DIR / e / "result.json").exists()]),
+        })
+    return result
+
+
+@app.get("/api/cohorts/{cohort_id}/portal-info")
+async def get_cohort_portal_info(cohort_id: str):
+    """Public endpoint: cohort info + event list for the participant portal."""
+    c = co.get_cohort(cohort_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Cohort no encontrado")
+    events = []
+    for eid in c.get("event_ids", []):
+        rp = fe.RESULTS_DIR / eid / "result.json"
+        if rp.exists():
+            with open(rp) as f:
+                d = json.load(f)
+            events.append({
+                "event_id": eid,
+                "event_name": d.get("event_name", eid),
+                "total_photos": d.get("total_photos", 0),
+            })
+    return {
+        "cohort_id": cohort_id,
+        "cohort_name": c["name"],
+        "program": c.get("program"),
+        "events": events,
+    }
+
+
+@app.get("/api/events/{event_id}/photos")
+async def list_event_photos(event_id: str):
+    """List all photo filenames for an event."""
+    event_dir = fe.EVENTS_DIR / event_id
+    if not event_dir.exists():
+        return {"photos": []}
+    photos = sorted([p.name for p in event_dir.iterdir() if fe._is_image(p)])
+    return {"photos": photos}
+
+
+@app.delete("/api/events/{event_id}/photo/{filename}")
+async def delete_event_photo(event_id: str, filename: str):
+    """Delete a single photo from an event and remove it from the face index."""
+    safe_name = Path(filename).name
+    photo_path = fe.EVENTS_DIR / event_id / safe_name
+    if not photo_path.exists():
+        raise HTTPException(status_code=404, detail="Foto no encontrada")
+
+    photo_path.unlink()
+
+    # Remove from face_index.json
+    index_path = fe.RESULTS_DIR / event_id / "face_index.json"
+    if index_path.exists():
+        with open(index_path) as f:
+            data = json.load(f)
+        data["index"].pop(safe_name, None)
+        data["photo_count"] = max(0, data.get("photo_count", 1) - 1)
+        with open(index_path, "w") as f:
+            json.dump(data, f)
+
+    # Update result.json stats
+    result_path = fe.RESULTS_DIR / event_id / "result.json"
+    if result_path.exists():
+        with open(result_path) as f:
+            result = json.load(f)
+        result["total_photos"] = max(0, result.get("total_photos", 1) - 1)
+        result["indexed_faces"] = sum(len(v) for v in data["index"].values()) if index_path.exists() else 0
+        with open(result_path, "w") as f:
+            json.dump(result, f, indent=2)
+
+    return {"ok": True}
+
+
+@app.get("/api/events/{event_id}/info")
+async def get_event_info(event_id: str):
+    """Public endpoint: returns basic event info for the participant portal."""
+    result_path = fe.RESULTS_DIR / event_id / "result.json"
+    if not result_path.exists():
+        raise HTTPException(status_code=404, detail="Evento no encontrado o aún procesando")
+    with open(result_path) as f:
+        data = json.load(f)
+    return {
+        "event_id": event_id,
+        "event_name": data.get("event_name", event_id),
+        "total_photos": data.get("total_photos", 0),
+        "indexed_faces": data.get("indexed_faces", 0),
+    }
+
+
+@app.post("/api/events/{event_id}/match-selfie")
+async def match_selfie(event_id: str, file: UploadFile = File(...)):
+    """Public endpoint: participant uploads a selfie, gets back matched photo filenames."""
+    result_path = fe.RESULTS_DIR / event_id / "result.json"
+    if not result_path.exists():
+        raise HTTPException(status_code=404, detail="Evento no encontrado o aún procesando")
+
+    selfie_id = str(uuid.uuid4())
+    ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
+    if ext not in fe.SUPPORTED_EXTENSIONS:
+        ext = ".jpg"
+    selfie_path = TEMP_DIR / f"selfie_{selfie_id}{ext}"
+    async with aiofiles.open(selfie_path, "wb") as f:
+        content = await file.read()
+        await f.write(content)
+
+    try:
+        matched = await run_in_threadpool(fe.match_selfie_to_event, event_id, str(selfie_path))
+    except Exception as e:
+        logger.exception(f"Error matching selfie for event {event_id}")
+        matched = []
+    finally:
+        selfie_path.unlink(missing_ok=True)
+
+    return {"matched_photos": matched, "count": len(matched)}
+
+
+@app.get("/api/events/{event_id}/photo/{filename}")
+async def get_event_photo(event_id: str, filename: str):
+    """Public endpoint: serve an individual event photo by filename."""
+    safe_filename = Path(filename).name  # prevent path traversal
+    photo_path = fe.EVENTS_DIR / event_id / safe_filename
+    if not photo_path.exists():
+        raise HTTPException(status_code=404, detail="Foto no encontrada")
+    return FileResponse(str(photo_path))
+
+
+@app.post("/api/events/{event_id}/add-photos")
+async def add_photos_to_event(
+    event_id: str,
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+):
+    """Public endpoint: participant adds their own photos to the event pool."""
+    result_path = fe.RESULTS_DIR / event_id / "result.json"
+    if not result_path.exists():
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+
+    event_dir = fe.EVENTS_DIR / event_id
+    event_dir.mkdir(parents=True, exist_ok=True)
+
+    saved_paths = []
+    for upload in files:
+        ext = Path(upload.filename).suffix.lower() or ".jpg"
+        if ext not in fe.SUPPORTED_EXTENSIONS:
+            continue
+        dest = event_dir / f"{uuid.uuid4()}{ext}"
+        async with aiofiles.open(dest, "wb") as f:
+            content = await upload.read()
+            await f.write(content)
+        saved_paths.append(dest)
+
+    if saved_paths:
+        background_tasks.add_task(fe.add_photos_to_index, event_id, saved_paths)
+
+    return {"added": len(saved_paths)}
 
 
 @app.get("/api/health")

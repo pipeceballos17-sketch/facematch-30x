@@ -12,14 +12,15 @@ export default {
           border:  "#CCFF4740", // subtle border
         },
         x: {
-          bg:      "#0A0A0A",   // page background
-          surface: "#141414",   // card background
-          surface2:"#1C1C1C",   // elevated surface
-          border:  "#2A2A2A",   // default border
-          border2: "#333333",   // brighter border
-          text:    "#FFFFFF",   // primary text
-          muted:   "#888888",   // secondary text
-          faint:   "#444444",   // very muted
+          bg:      "#FFFFFF",   // page background
+          surface: "#F7F8FA",   // card background
+          surface2:"#EDEEF1",   // elevated surface / inputs
+          border:  "#E1E4E9",   // default border
+          border2: "#C5CAD2",   // stronger border
+          text:    "#111827",   // primary text
+          muted:   "#6B7280",   // secondary text
+          faint:   "#9CA3AF",   // very muted / placeholder
+          ink:     "#111827",   // dark ink — always dark (text on lime buttons)
         },
       },
       fontFamily: {

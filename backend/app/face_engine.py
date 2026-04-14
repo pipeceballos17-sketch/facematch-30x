@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 MODEL_NAME = "ArcFace"
 DETECTOR_BACKEND = "opencv"  # options: opencv, retinaface, mtcnn, ssd
 DISTANCE_METRIC = "cosine"
-THRESHOLD = 0.40  # lower = stricter matching (ArcFace cosine default ~0.68)
+THRESHOLD = 0.50  # lower = stricter matching (ArcFace cosine default ~0.68)
 
 STORAGE_BASE = Path(__file__).parent.parent / "storage"
 PARTICIPANTS_DIR = STORAGE_BASE / "participants"
@@ -46,6 +46,19 @@ SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 def _is_image(path: Path) -> bool:
     return path.suffix.lower() in SUPPORTED_EXTENSIONS
+
+
+def _normalize_image(image_path: str):
+    """Fix EXIF rotation and convert to RGB JPEG so opencv reads it correctly."""
+    try:
+        from PIL import Image, ImageOps
+        img = Image.open(image_path)
+        img = ImageOps.exif_transpose(img)   # fix rotation
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        img.save(image_path, "JPEG", quality=95)
+    except Exception as e:
+        logger.warning(f"Could not normalize image {image_path}: {e}")
 
 
 def get_participant_dir(participant_id: str) -> Path:
@@ -129,6 +142,7 @@ def extract_faces_with_embeddings(image_path: str) -> List[np.ndarray]:
     Extract all faces from an image and return their embeddings.
     Returns empty list if no faces found.
     """
+    _normalize_image(image_path)
     try:
         results = DeepFace.represent(
             img_path=image_path,
@@ -138,7 +152,7 @@ def extract_faces_with_embeddings(image_path: str) -> List[np.ndarray]:
         )
         return [np.array(r["embedding"]) for r in results]
     except Exception as e:
-        logger.debug(f"No faces or error in {image_path}: {e}")
+        logger.warning(f"No faces or error in {image_path}: {e}")
         return []
 
 
@@ -268,6 +282,99 @@ def run_face_matching(
         "unmatched": unmatched,
         "total_faces": total_faces,
     }
+
+
+def preprocess_event_faces(
+    event_id: str,
+    image_paths: List[Path],
+    status_callback=None,
+) -> dict:
+    """
+    Extract face embeddings from all event photos and store as face_index.json.
+    Called when admin uploads a ZIP — participants later query against this index.
+    """
+    index: Dict[str, List] = {}
+    for i, img_path in enumerate(image_paths):
+        if status_callback:
+            status_callback(i + 1, len(image_paths), img_path.name)
+        embeddings = extract_faces_with_embeddings(str(img_path))
+        if embeddings:
+            index[img_path.name] = [emb.tolist() for emb in embeddings]
+
+    result_dir = RESULTS_DIR / event_id
+    result_dir.mkdir(parents=True, exist_ok=True)
+
+    with open(result_dir / "face_index.json", "w") as f:
+        json.dump({
+            "event_id": event_id,
+            "photo_count": len(image_paths),
+            "index": index,
+        }, f)
+
+    return {
+        "total_photos": len(image_paths),
+        "indexed_faces": sum(len(v) for v in index.values()),
+    }
+
+
+def match_selfie_to_event(event_id: str, selfie_path: str) -> List[str]:
+    """
+    Compare a selfie against the event face index.
+    Returns list of matching photo filenames.
+    """
+    index_path = RESULTS_DIR / event_id / "face_index.json"
+    if not index_path.exists():
+        return []
+
+    with open(index_path) as f:
+        data = json.load(f)
+
+    selfie_embeddings = extract_faces_with_embeddings(selfie_path)
+    if not selfie_embeddings:
+        return []
+
+    selfie_emb = selfie_embeddings[0]  # Use the first (largest) face in selfie
+    matched: List[str] = []
+
+    for filename, emb_lists in data["index"].items():
+        for emb_list in emb_lists:
+            if cosine_distance(selfie_emb, np.array(emb_list)) < THRESHOLD:
+                matched.append(filename)
+                break  # Only add each photo once
+
+    return matched
+
+
+def add_photos_to_index(event_id: str, new_paths: List[Path]):
+    """Add new photos to an existing face index (called after participant uploads photos)."""
+    index_path = RESULTS_DIR / event_id / "face_index.json"
+    if not index_path.exists():
+        return
+
+    with open(index_path) as f:
+        data = json.load(f)
+
+    index = data.get("index", {})
+    for img_path in new_paths:
+        embeddings = extract_faces_with_embeddings(str(img_path))
+        if embeddings:
+            index[img_path.name] = [emb.tolist() for emb in embeddings]
+
+    data["index"] = index
+    data["photo_count"] = data.get("photo_count", len(index)) + len(new_paths)
+
+    with open(index_path, "w") as f:
+        json.dump(data, f)
+
+    # Update result.json stats
+    result_path = RESULTS_DIR / event_id / "result.json"
+    if result_path.exists():
+        with open(result_path) as f:
+            result = json.load(f)
+        result["total_photos"] = data["photo_count"]
+        result["indexed_faces"] = sum(len(v) for v in index.values())
+        with open(result_path, "w") as f:
+            json.dump(result, f, indent=2)
 
 
 def create_result_zip(event_id: str, participant_id: str) -> Optional[Path]:
