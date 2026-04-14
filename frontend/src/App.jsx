@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { FolderOpen, Users, Plus, RefreshCw, AlertTriangle, FileSpreadsheet } from "lucide-react";
+import { FolderOpen, Users, Plus, RefreshCw, AlertTriangle, FileSpreadsheet, Search } from "lucide-react";
 import CohortFeed from "./components/CohortFeed";
 import CohortDetail from "./components/CohortDetail";
 import ParticipantCard from "./components/ParticipantCard";
@@ -31,6 +31,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showCSVModal, setShowCSVModal] = useState(false);
+  const [participantSearch, setParticipantSearch] = useState("");
 
   useEffect(() => {
     const handleHash = () => setPortalCohortId(getPortalCohortId());
@@ -55,6 +56,12 @@ export default function App() {
   };
 
   const participantsWithPhoto = participants.filter(p => p.has_reference_photo);
+  const filteredParticipants = participantSearch.trim()
+    ? participants.filter(p =>
+        p.name.toLowerCase().includes(participantSearch.toLowerCase()) ||
+        p.company?.toLowerCase().includes(participantSearch.toLowerCase())
+      )
+    : participants;
 
   const handleSelectCohort = (cohort) => {
     setSelectedCohort(cohort);
@@ -124,7 +131,7 @@ export default function App() {
 
         {tab === "participants" && (
           <div>
-            <div className="flex items-end justify-between mb-8">
+            <div className="flex items-end justify-between mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-x-text">Participantes</h2>
                 <p className="text-x-muted text-sm mt-1">
@@ -154,6 +161,26 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {participants.length > 0 && (
+              <div className="relative mb-5">
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-x-faint pointer-events-none" />
+                <input
+                  value={participantSearch}
+                  onChange={e => setParticipantSearch(e.target.value)}
+                  placeholder="Buscar por nombre o empresa..."
+                  className="w-full bg-x-surface border border-x-border rounded-xl pl-9 pr-4 py-2.5 text-sm text-x-text placeholder:text-x-faint outline-none focus:border-lime transition-colors"
+                />
+                {participantSearch && (
+                  <button
+                    onClick={() => setParticipantSearch("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-x-faint hover:text-x-muted"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            )}
 
             {participants.length > 0 && participantsWithPhoto.length < participants.length && (
               <div className="flex items-center gap-3 border border-yellow-900/60 bg-yellow-950/30 rounded-xl p-4 mb-6 text-sm text-yellow-400">
@@ -196,9 +223,14 @@ export default function App() {
                   <div key={i} className="bg-x-surface border border-x-border rounded-xl h-56 animate-pulse" />
                 ))}
               </div>
+            ) : filteredParticipants.length === 0 && participantSearch ? (
+              <div className="text-center py-16 text-x-faint">
+                <Search size={28} className="mx-auto mb-3 opacity-40" />
+                <p className="text-sm">Sin resultados para "{participantSearch}"</p>
+              </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                {participants.map(p => (
+                {filteredParticipants.map(p => (
                   <ParticipantCard
                     key={p.id}
                     participant={p}

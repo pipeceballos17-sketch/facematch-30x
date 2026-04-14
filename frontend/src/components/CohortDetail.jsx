@@ -264,7 +264,7 @@ function EventDetail({ event, onShare }) {
 }
 
 
-export default function CohortDetail({ cohort, onBack }) {
+export default function CohortDetail({ cohort, onBack, participantCount }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
@@ -295,6 +295,15 @@ export default function CohortDetail({ cohort, onBack }) {
     if (!hasProcessing) return;
     const timer = setInterval(refreshEvents, 3000);
     return () => clearInterval(timer);
+  }, [events]);
+
+  // Keep selectedEvent in sync when events list refreshes
+  useEffect(() => {
+    if (!selectedEvent) return;
+    const fresh = events.find(e => e.event_id === selectedEvent.event_id);
+    if (fresh && (fresh.total_photos !== selectedEvent.total_photos || fresh.indexed_faces !== selectedEvent.indexed_faces)) {
+      setSelectedEvent(fresh);
+    }
   }, [events]);
 
   const handleSelectEvent = (event) => {
@@ -416,6 +425,19 @@ export default function CohortDetail({ cohort, onBack }) {
               <p className="text-xs font-semibold text-x-muted uppercase tracking-wider mb-5">
                 Subir fotos a "{cohort.name}"
               </p>
+
+              {participantCount === 0 && (
+                <div className="flex items-start gap-3 border border-yellow-800/50 bg-yellow-950/20 rounded-xl p-4 mb-5 text-sm text-yellow-400">
+                  <span className="text-base leading-none mt-0.5">⚠</span>
+                  <div>
+                    <p className="font-semibold">Sin participantes con foto de referencia</p>
+                    <p className="text-xs text-yellow-500/80 mt-1">
+                      El reconocimiento facial no encontrará a nadie. Ve a <strong>Participantes</strong> y sube al menos una foto antes de procesar el evento.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <UploadZip
                 cohortId={cohort.id}
                 onResults={handleNewResults}
