@@ -317,10 +317,11 @@ def preprocess_event_faces(
     }
 
 
-def match_selfie_to_event(event_id: str, selfie_path: str) -> List[str]:
+def match_selfie_to_event(event_id: str, selfie_path: str, threshold: Optional[float] = None) -> List[str]:
     """
     Compare a selfie against the event face index.
     Returns list of matching photo filenames.
+    threshold overrides the global THRESHOLD when provided.
     """
     index_path = RESULTS_DIR / event_id / "face_index.json"
     if not index_path.exists():
@@ -334,11 +335,12 @@ def match_selfie_to_event(event_id: str, selfie_path: str) -> List[str]:
         return []
 
     selfie_emb = selfie_embeddings[0]  # Use the first (largest) face in selfie
+    match_threshold = threshold if threshold is not None else THRESHOLD
     matched: List[str] = []
 
     for filename, emb_lists in data["index"].items():
         for emb_list in emb_lists:
-            if cosine_distance(selfie_emb, np.array(emb_list)) < THRESHOLD:
+            if cosine_distance(selfie_emb, np.array(emb_list)) < match_threshold:
                 matched.append(filename)
                 break  # Only add each photo once
 

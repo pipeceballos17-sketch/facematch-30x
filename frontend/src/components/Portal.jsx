@@ -188,6 +188,7 @@ function CohortPortal({ cohortId }) {
   const [matching, setMatching]           = useState(false);
   const [matchError, setMatchError]       = useState(null);
   const [matchedPhotos, setMatchedPhotos] = useState([]);
+  const [usedWideSearch, setUsedWideSearch] = useState(false);
 
   const [addingPhotos, setAddingPhotos] = useState(false);
   const [addedCount, setAddedCount]     = useState(0);
@@ -212,12 +213,13 @@ function CohortPortal({ cohortId }) {
     setMatchError(null);
   };
 
-  const handleMatch = async () => {
+  const handleMatch = async (wide = false) => {
     if (!selfieFile || !selectedEvent) return;
     setMatching(true);
+    setUsedWideSearch(wide);
     setStep("matching");
     try {
-      const result = await matchSelfie(selectedEvent.event_id, selfieFile);
+      const result = await matchSelfie(selectedEvent.event_id, selfieFile, wide ? 0.62 : null);
       setMatchedPhotos(result.matched_photos);
       setStep("results");
     } catch {
@@ -260,6 +262,7 @@ function CohortPortal({ cohortId }) {
     resetSelfie();
     setMatchedPhotos([]);
     setAddedCount(0);
+    setUsedWideSearch(false);
   };
 
   const topBar = (title, subtitle, onBack) => (
@@ -398,7 +401,7 @@ function CohortPortal({ cohortId }) {
               {matchError && <p className="text-red-500 text-xs text-center mb-3">{matchError}</p>}
 
               <button
-                onClick={handleMatch}
+                onClick={() => handleMatch(false)}
                 disabled={!selfieFile || matching}
                 className="w-full font-bold py-3 rounded-xl transition-colors disabled:opacity-40"
                 style={{ background: "#CCFF47", color: "#111827" }}
@@ -507,17 +510,33 @@ function CohortPortal({ cohortId }) {
                 </button>
               </>
             ) : (
-              <div className="text-center py-14 rounded-2xl" style={{ border: "2px dashed #E5E7EB" }}>
+              <div className="text-center py-10 rounded-2xl" style={{ border: "2px dashed #E5E7EB" }}>
                 <ImageOff size={32} className="mx-auto mb-3" style={{ color: "#D1D5DB" }} />
                 <p className="text-sm mb-1" style={{ color: "#6B7280" }}>No encontramos tu cara en este evento.</p>
-                <p className="text-xs" style={{ color: "#9CA3AF" }}>Intenta con una foto más clara y de frente.</p>
-                <button
-                  onClick={() => { setStep("upload"); resetSelfie(); setMatchedPhotos([]); }}
-                  className="mt-5 px-5 py-2.5 rounded-xl text-sm transition-colors"
-                  style={{ border: "1px solid #E5E7EB", color: "#6B7280", background: "#fff" }}
-                >
-                  Intentar de nuevo
-                </button>
+                <p className="text-xs" style={{ color: "#9CA3AF" }}>
+                  {usedWideSearch
+                    ? "Prueba con una foto más clara, de frente y con buena iluminación."
+                    : "Puede que la foto no sea suficientemente clara."}
+                </p>
+
+                <div className="mt-5 flex flex-col items-center gap-2">
+                  {!usedWideSearch && (
+                    <button
+                      onClick={() => handleMatch(true)}
+                      className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors"
+                      style={{ background: "#CCFF4720", border: "1px solid #CCFF4760", color: "#6B9900" }}
+                    >
+                      Buscar con menor precisión
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { setStep("upload"); resetSelfie(); setMatchedPhotos([]); setUsedWideSearch(false); }}
+                    className="px-5 py-2.5 rounded-xl text-sm transition-colors"
+                    style={{ border: "1px solid #E5E7EB", color: "#6B7280", background: "#fff" }}
+                  >
+                    Intentar con otra foto
+                  </button>
+                </div>
               </div>
             )}
           </div>

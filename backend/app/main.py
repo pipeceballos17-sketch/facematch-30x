@@ -795,11 +795,19 @@ async def get_event_info(event_id: str):
 
 
 @app.post("/api/events/{event_id}/match-selfie")
-async def match_selfie(event_id: str, file: UploadFile = File(...)):
+async def match_selfie(
+    event_id: str,
+    file: UploadFile = File(...),
+    threshold: Optional[float] = Form(None),
+):
     """Public endpoint: participant uploads a selfie, gets back matched photo filenames."""
     result_path = fe.RESULTS_DIR / event_id / "result.json"
     if not result_path.exists():
         raise HTTPException(status_code=404, detail="Evento no encontrado o aún procesando")
+
+    # Clamp threshold to a safe range to avoid abuse
+    if threshold is not None:
+        threshold = max(0.30, min(0.80, threshold))
 
     selfie_id = str(uuid.uuid4())
     ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
@@ -811,7 +819,9 @@ async def match_selfie(event_id: str, file: UploadFile = File(...)):
         await f.write(content)
 
     try:
-        matched = await run_in_threadpool(fe.match_selfie_to_event, event_id, str(selfie_path))
+        matched = await run_in_threadpool(
+            fe.match_selfie_to_event, event_id, str(selfie_path), threshold
+        )
     except Exception as e:
         logger.exception(f"Error matching selfie for event {event_id}")
         matched = []

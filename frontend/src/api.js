@@ -82,9 +82,10 @@ export const getEventPhotos = (eventId) =>
 export const deleteEventPhoto = (eventId, filename) =>
   api.delete(`/api/events/${eventId}/photo/${encodeURIComponent(filename)}`).then(r => r.data);
 
-export const matchSelfie = (eventId, file) => {
+export const matchSelfie = (eventId, file, threshold = null) => {
   const fd = new FormData();
   fd.append("file", file);
+  if (threshold !== null) fd.append("threshold", threshold);
   return api.post(`/api/events/${eventId}/match-selfie`, fd).then(r => r.data);
 };
 
