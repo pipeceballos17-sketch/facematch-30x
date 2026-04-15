@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-STORAGE_BASE = Path(__file__).parent.parent / "storage"
+from app.config import STORAGE_BASE
+
 COHORTS_DIR = STORAGE_BASE / "cohorts"
 COHORTS_DIR.mkdir(parents=True, exist_ok=True)
 

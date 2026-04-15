@@ -32,7 +32,8 @@ DETECTOR_BACKEND = "opencv"  # options: opencv, retinaface, mtcnn, ssd
 DISTANCE_METRIC = "cosine"
 THRESHOLD = 0.50  # lower = stricter matching (ArcFace cosine default ~0.68)
 
-STORAGE_BASE = Path(__file__).parent.parent / "storage"
+from app.config import STORAGE_BASE
+
 PARTICIPANTS_DIR = STORAGE_BASE / "participants"
 EVENTS_DIR = STORAGE_BASE / "events"
 RESULTS_DIR = STORAGE_BASE / "results"

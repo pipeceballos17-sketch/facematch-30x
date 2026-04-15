@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import csv
 import io
@@ -8,9 +9,13 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi.concurrency import run_in_threadpool
+from fastapi import Request
+from fastapi.responses import JSONResponse
 
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
+
+from app.config import STORAGE_BASE, ADMIN_PASSWORD
 
 import aiofiles
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
@@ -42,8 +47,29 @@ app.add_middleware(
 processing_jobs: dict = {}
 csv_import_jobs: dict = {}
 
-TEMP_DIR = Path(__file__).parent.parent / "storage" / "temp"
+TEMP_DIR = STORAGE_BASE / "temp"
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
+
+# ── Auth middleware ────────────────────────────────────────────────
+# Routes accessible without a key (participant portal + health check)
+_PUBLIC_RE = re.compile(
+    r"^(/api/health$"
+    r"|/api/portal/"
+    r"|/api/cohorts/[^/]+/portal-info$"
+    r"|/api/events/[^/]+/match-selfie$"
+    r"|/api/events/[^/]+/add-photos$"
+    r"|/api/events/[^/]+/info$"
+    r"|/api/events/[^/]+/photo/[^/]+$"
+    r"|/docs|/openapi\.json|/redoc)"
+)
+
+@app.middleware("http")
+async def admin_auth(request: Request, call_next):
+    if not ADMIN_PASSWORD or _PUBLIC_RE.match(request.url.path):
+        return await call_next(request)
+    if request.headers.get("x-admin-key") != ADMIN_PASSWORD:
+        return JSONResponse({"detail": "No autorizado"}, status_code=401)
+    return await call_next(request)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -874,4 +900,4 @@ async def add_photos_to_event(
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "model": fe.MODEL_NAME}
+    return {"status": "ok", "model": fe.MODEL_NAME, "auth_required": bool(ADMIN_PASSWORD)}

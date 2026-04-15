@@ -1,8 +1,27 @@
 import axios from "axios";
 
-const api = axios.create({
+export const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000",
 });
+
+// Attach stored admin key to every request
+api.interceptors.request.use(config => {
+  const key = localStorage.getItem("adminKey");
+  if (key) config.headers["x-admin-key"] = key;
+  return config;
+});
+
+// On 401 → clear key and notify App to show lock screen
+api.interceptors.response.use(
+  r => r,
+  err => {
+    if (err.response?.status === 401) {
+      localStorage.removeItem("adminKey");
+      window.dispatchEvent(new CustomEvent("admin-logout"));
+    }
+    return Promise.reject(err);
+  }
+);
 
 // ── Cohorts ────────────────────────────────────────────────────────
 export const listCohorts = () => api.get("/api/cohorts").then(r => r.data);

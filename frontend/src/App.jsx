@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { FolderOpen, Users, Plus, RefreshCw, AlertTriangle, FileSpreadsheet, Search } from "lucide-react";
+import { FolderOpen, Users, Plus, RefreshCw, AlertTriangle, FileSpreadsheet, Search, Lock, Loader } from "lucide-react";
+import { api } from "./api";
 import CohortFeed from "./components/CohortFeed";
 import CohortDetail from "./components/CohortDetail";
 import ParticipantCard from "./components/ParticipantCard";
@@ -23,6 +24,58 @@ const TABS = [
   { id: "participants", label: "Participantes",   icon: Users },
 ];
 
+function AdminLock({ onUnlock }) {
+  const [password, setPassword] = useState("");
+  const [error, setError]       = useState(false);
+  const [checking, setChecking] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setChecking(true);
+    setError(false);
+    try {
+      await api.get("/api/cohorts", { headers: { "x-admin-key": password } });
+      localStorage.setItem("adminKey", password);
+      onUnlock();
+    } catch {
+      setError(true);
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-x-bg flex items-center justify-center p-6">
+      <div className="bg-x-surface border border-x-border rounded-2xl shadow-2xl w-full max-w-sm p-8">
+        <img src={LOGO_URL} alt="30X" className="h-8 mb-6" />
+        <div className="flex items-center gap-2 mb-1">
+          <Lock size={16} className="text-x-faint" />
+          <h2 className="font-bold text-x-text text-base">Panel de administración</h2>
+        </div>
+        <p className="text-x-muted text-sm mb-6">Ingresa la contraseña para continuar.</p>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <input
+            type="password"
+            autoFocus
+            value={password}
+            onChange={e => { setPassword(e.target.value); setError(false); }}
+            placeholder="Contraseña"
+            className="w-full bg-x-surface2 border border-x-border rounded-xl px-4 py-2.5 text-sm text-x-text placeholder:text-x-faint outline-none focus:border-lime transition-colors"
+          />
+          {error && <p className="text-red-400 text-xs">Contraseña incorrecta.</p>}
+          <button
+            type="submit"
+            disabled={checking || !password}
+            className="w-full flex items-center justify-center gap-2 bg-lime text-x-ink rounded-xl py-2.5 text-sm font-bold hover:bg-lime-dim disabled:opacity-40 transition-colors"
+          >
+            {checking ? <Loader size={14} className="animate-spin" /> : "Entrar"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [portalCohortId, setPortalCohortId] = useState(getPortalCohortId);
   const [tab, setTab] = useState("cohorts");
@@ -33,11 +86,30 @@ export default function App() {
   const [showCSVModal, setShowCSVModal] = useState(false);
   const [participantSearch, setParticipantSearch] = useState("");
 
+  // Auth state — null means "checking", false = open, true = requires key
+  const [authRequired, setAuthRequired] = useState(null);
+  const [adminKey, setAdminKey] = useState(() => localStorage.getItem("adminKey") || "");
+
   useEffect(() => {
     const handleHash = () => setPortalCohortId(getPortalCohortId());
     window.addEventListener("hashchange", handleHash);
     return () => window.removeEventListener("hashchange", handleHash);
   }, []);
+
+  // Listen for 401s dispatched by the axios interceptor
+  useEffect(() => {
+    const handleLogout = () => setAdminKey("");
+    window.addEventListener("admin-logout", handleLogout);
+    return () => window.removeEventListener("admin-logout", handleLogout);
+  }, []);
+
+  // Check if server requires auth (only in admin mode)
+  useEffect(() => {
+    if (portalCohortId !== null) return;
+    api.get("/api/health")
+      .then(r => setAuthRequired(Boolean(r.data.auth_required)))
+      .catch(() => setAuthRequired(false));
+  }, [portalCohortId]);
 
   const loadParticipants = async () => {
     setLoading(true);
@@ -49,6 +121,12 @@ export default function App() {
   useEffect(() => { loadParticipants(); }, []);
 
   if (portalCohortId !== null) return <Portal cohortId={portalCohortId || null} />;
+
+  // Checking auth status — blank screen to avoid flicker
+  if (authRequired === null) return <div className="min-h-screen bg-x-bg" />;
+
+  // Lock screen
+  if (authRequired && !adminKey) return <AdminLock onUnlock={() => setAdminKey(localStorage.getItem("adminKey") || "")} />;
 
   const handleDelete = async (id) => {
     await deleteParticipant(id);
