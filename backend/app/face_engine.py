@@ -22,9 +22,14 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
 import numpy as np
-from deepface import DeepFace
 
 logger = logging.getLogger(__name__)
+
+# DeepFace is imported lazily inside functions to avoid loading TensorFlow
+# at server startup (would OOM on Railway's 512 MB containers)
+def _deepface():
+    from deepface import DeepFace  # noqa: PLC0415
+    return DeepFace
 
 # DeepFace model settings — ArcFace gives best accuracy, VGG-Face is faster
 MODEL_NAME = "ArcFace"
@@ -119,7 +124,7 @@ def get_reference_photo_path(participant_id: str) -> Optional[Path]:
 def compute_embedding(image_path: str) -> Optional[np.ndarray]:
     """Compute face embedding for a reference photo. Returns None if no face found."""
     try:
-        result = DeepFace.represent(
+        result = _deepface().represent(
             img_path=image_path,
             model_name=MODEL_NAME,
             detector_backend=DETECTOR_BACKEND,
@@ -145,7 +150,7 @@ def extract_faces_with_embeddings(image_path: str) -> List[np.ndarray]:
     """
     _normalize_image(image_path)
     try:
-        results = DeepFace.represent(
+        results = _deepface().represent(
             img_path=image_path,
             model_name=MODEL_NAME,
             detector_backend=DETECTOR_BACKEND,
