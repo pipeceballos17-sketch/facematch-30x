@@ -71,7 +71,11 @@ async def admin_auth(request: Request, call_next):
     if not ADMIN_PASSWORD or _PUBLIC_RE.match(request.url.path):
         return await call_next(request)
     if request.headers.get("x-admin-key") != ADMIN_PASSWORD:
-        return JSONResponse({"detail": "No autorizado"}, status_code=401)
+        return JSONResponse(
+            {"detail": "No autorizado"},
+            status_code=401,
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
     return await call_next(request)
 
 
