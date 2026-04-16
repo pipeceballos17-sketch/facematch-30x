@@ -103,12 +103,20 @@ export default function App() {
     return () => window.removeEventListener("admin-logout", handleLogout);
   }, []);
 
-  // Check if server requires auth (only in admin mode)
+  // Check if server requires auth (only in admin mode) — retry up to 5x if backend is starting up
   useEffect(() => {
     if (portalCohortId !== null) return;
-    api.get("/api/health")
-      .then(r => setAuthRequired(Boolean(r.data.auth_required)))
-      .catch(() => setAuthRequired(false));
+    let attempts = 0;
+    const check = () => {
+      api.get("/api/health")
+        .then(r => setAuthRequired(Boolean(r.data.auth_required)))
+        .catch(() => {
+          attempts++;
+          if (attempts < 5) setTimeout(check, 2000);
+          else setAuthRequired(false); // give up, open mode
+        });
+    };
+    check();
   }, [portalCohortId]);
 
   const loadParticipants = async () => {

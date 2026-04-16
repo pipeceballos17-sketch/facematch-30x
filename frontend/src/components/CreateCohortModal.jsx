@@ -16,10 +16,12 @@ export default function CreateCohortModal({ onClose, onCreated }) {
   const [program, setProgram] = useState("");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   const handleCreate = async () => {
     if (!name.trim()) return;
     setSaving(true);
+    setError("");
     try {
       const fd = new FormData();
       fd.append("name", name.trim());
@@ -28,8 +30,12 @@ export default function CreateCohortModal({ onClose, onCreated }) {
       const cohort = await createCohort(fd);
       onCreated(cohort);
       onClose();
-    } catch {
-      // ignorar
+    } catch (e) {
+      if (e?.response?.status === 401) {
+        setError("Sesión expirada — recarga la página e inicia sesión de nuevo.");
+      } else {
+        setError("Error al crear el cohort. Intenta de nuevo.");
+      }
     } finally {
       setSaving(false);
     }
@@ -75,6 +81,10 @@ export default function CreateCohortModal({ onClose, onCreated }) {
               ))}
             </select>
           </div>
+
+          {error && (
+            <p className="text-red-400 text-xs bg-red-950/30 border border-red-900/40 rounded-lg px-3 py-2">{error}</p>
+          )}
 
           <div>
             <label className="block text-xs font-semibold text-x-muted mb-1.5 uppercase tracking-wider">
