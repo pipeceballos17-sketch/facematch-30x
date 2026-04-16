@@ -65,6 +65,9 @@ _PUBLIC_RE = re.compile(
 
 @app.middleware("http")
 async def admin_auth(request: Request, call_next):
+    # Let CORS preflight requests through so CORSMiddleware can handle them
+    if request.method == "OPTIONS":
+        return await call_next(request)
     if not ADMIN_PASSWORD or _PUBLIC_RE.match(request.url.path):
         return await call_next(request)
     if request.headers.get("x-admin-key") != ADMIN_PASSWORD:
