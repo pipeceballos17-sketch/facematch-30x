@@ -33,7 +33,7 @@ def _deepface():
 
 # DeepFace model settings — ArcFace gives best accuracy, VGG-Face is faster
 MODEL_NAME = "ArcFace"
-DETECTOR_BACKEND = "opencv"  # options: opencv, retinaface, mtcnn, ssd
+DETECTOR_BACKEND = "ssd"  # options: opencv, retinaface, mtcnn, ssd
 DISTANCE_METRIC = "cosine"
 THRESHOLD = 0.50  # lower = stricter matching (ArcFace cosine default ~0.68)
 
