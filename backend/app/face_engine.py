@@ -31,11 +31,11 @@ def _deepface():
     from deepface import DeepFace  # noqa: PLC0415
     return DeepFace
 
-# DeepFace model settings — ArcFace gives best accuracy, VGG-Face is faster
-MODEL_NAME = "ArcFace"
+# DeepFace model settings — Facenet is lightweight (~89 MB) and fits in Railway's 512 MB RAM
+MODEL_NAME = "Facenet"
 DETECTOR_BACKEND = "ssd"  # options: opencv, retinaface, mtcnn, ssd
 DISTANCE_METRIC = "cosine"
-THRESHOLD = 0.50  # lower = stricter matching (ArcFace cosine default ~0.68)
+THRESHOLD = 0.40  # Facenet cosine: stricter than ArcFace, ~0.40 is a solid default
 
 from app.config import STORAGE_BASE
 
