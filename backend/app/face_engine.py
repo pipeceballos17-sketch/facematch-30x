@@ -1,5 +1,5 @@
 """
-Face matching engine powered by DeepFace.
+Face matching engine powered by face_recognition (dlib).
 
 Pipeline:
 1. For each participant, we store a reference photo.
@@ -12,10 +12,8 @@ Pipeline:
 5. Copy matched photos into per-participant result folders.
 """
 
-import os
 import zipfile
 import shutil
-import uuid
 import json
 import logging
 from pathlib import Path
@@ -25,17 +23,12 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# DeepFace is imported lazily inside functions to avoid loading TensorFlow
-# at server startup (would OOM on Railway's 512 MB containers)
-def _deepface():
-    from deepface import DeepFace  # noqa: PLC0415
-    return DeepFace
+# face_recognition uses dlib under the hood — ~5 MB model, no TensorFlow, CPU-friendly
+import face_recognition
 
-# DeepFace model settings — Facenet is lightweight (~89 MB) and fits in Railway's 512 MB RAM
-MODEL_NAME = "Facenet"
-DETECTOR_BACKEND = "ssd"  # options: opencv, retinaface, mtcnn, ssd
-DISTANCE_METRIC = "cosine"
-THRESHOLD = 0.40  # Facenet cosine: stricter than ArcFace, ~0.40 is a solid default
+DISTANCE_METRIC = "euclidean"
+THRESHOLD = 0.55  # face_recognition default tolerance is 0.6; 0.55 is slightly stricter
+MODEL_NAME = "face_recognition_dlib"  # for display/health endpoint
 
 from app.config import STORAGE_BASE
 
@@ -55,11 +48,11 @@ def _is_image(path: Path) -> bool:
 
 
 def _normalize_image(image_path: str):
-    """Fix EXIF rotation and convert to RGB JPEG so opencv reads it correctly."""
+    """Fix EXIF rotation and convert to RGB JPEG so OpenCV reads it correctly."""
     try:
         from PIL import Image, ImageOps
         img = Image.open(image_path)
-        img = ImageOps.exif_transpose(img)   # fix rotation
+        img = ImageOps.exif_transpose(img)
         if img.mode != "RGB":
             img = img.convert("RGB")
         img.save(image_path, "JPEG", quality=95)
@@ -123,24 +116,25 @@ def get_reference_photo_path(participant_id: str) -> Optional[Path]:
 
 def compute_embedding(image_path: str) -> Optional[np.ndarray]:
     """Compute face embedding for a reference photo. Returns None if no face found."""
+    _normalize_image(image_path)
     try:
-        result = _deepface().represent(
-            img_path=image_path,
-            model_name=MODEL_NAME,
-            detector_backend=DETECTOR_BACKEND,
-            enforce_detection=True,
-        )
-        if result:
-            return np.array(result[0]["embedding"])
+        image = face_recognition.load_image_file(image_path)
+        encodings = face_recognition.face_encodings(image)
+        if encodings:
+            return np.array(encodings[0])
+        logger.warning(f"No face detected in {image_path}")
     except Exception as e:
         logger.warning(f"Could not compute embedding for {image_path}: {e}")
     return None
 
 
+def euclidean_distance(a: np.ndarray, b: np.ndarray) -> float:
+    return float(np.linalg.norm(a - b))
+
+
+# Keep cosine_distance for API compatibility
 def cosine_distance(a: np.ndarray, b: np.ndarray) -> float:
-    a_norm = a / (np.linalg.norm(a) + 1e-10)
-    b_norm = b / (np.linalg.norm(b) + 1e-10)
-    return float(1 - np.dot(a_norm, b_norm))
+    return euclidean_distance(a, b)
 
 
 def extract_faces_with_embeddings(image_path: str) -> List[np.ndarray]:
@@ -150,13 +144,9 @@ def extract_faces_with_embeddings(image_path: str) -> List[np.ndarray]:
     """
     _normalize_image(image_path)
     try:
-        results = _deepface().represent(
-            img_path=image_path,
-            model_name=MODEL_NAME,
-            detector_backend=DETECTOR_BACKEND,
-            enforce_detection=True,
-        )
-        return [np.array(r["embedding"]) for r in results]
+        image = face_recognition.load_image_file(image_path)
+        encodings = face_recognition.face_encodings(image)
+        return [np.array(enc) for enc in encodings]
     except Exception as e:
         logger.warning(f"No faces or error in {image_path}: {e}")
         return []
@@ -174,7 +164,6 @@ def load_participant_embeddings() -> Dict[str, Tuple[np.ndarray, dict]]:
         if ref_path is None:
             continue
 
-        # Check for cached embedding
         embedding_path = PARTICIPANTS_DIR / pid / "embedding.npy"
         if embedding_path.exists():
             embedding = np.load(str(embedding_path))
@@ -206,7 +195,6 @@ def extract_zip(zip_path: str, event_id: str) -> Tuple[Path, List[Path]]:
     image_paths = []
     with zipfile.ZipFile(zip_path, "r") as zf:
         for name in zf.namelist():
-            # Skip macOS metadata files and hidden files
             if "__MACOSX" in name or name.startswith(".") or name.endswith("/"):
                 continue
             p = Path(name)
@@ -242,7 +230,6 @@ def run_face_matching(
     result_dir = RESULTS_DIR / event_id
     result_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create per-participant result directories
     for pid, (_, meta) in participant_embeddings.items():
         safe_name = meta["name"].replace(" ", "_").replace("/", "_")
         (result_dir / f"{safe_name}_{pid[:8]}").mkdir(exist_ok=True)
@@ -265,7 +252,7 @@ def run_face_matching(
             best_dist = float("inf")
 
             for pid, (ref_emb, _) in participant_embeddings.items():
-                dist = cosine_distance(face_emb, ref_emb)
+                dist = euclidean_distance(face_emb, ref_emb)
                 if dist < best_dist:
                     best_dist = dist
                     best_pid = pid
@@ -340,15 +327,15 @@ def match_selfie_to_event(event_id: str, selfie_path: str, threshold: Optional[f
     if not selfie_embeddings:
         return []
 
-    selfie_emb = selfie_embeddings[0]  # Use the first (largest) face in selfie
+    selfie_emb = selfie_embeddings[0]
     match_threshold = threshold if threshold is not None else THRESHOLD
     matched: List[str] = []
 
     for filename, emb_lists in data["index"].items():
         for emb_list in emb_lists:
-            if cosine_distance(selfie_emb, np.array(emb_list)) < match_threshold:
+            if euclidean_distance(selfie_emb, np.array(emb_list)) < match_threshold:
                 matched.append(filename)
-                break  # Only add each photo once
+                break
 
     return matched
 
@@ -374,7 +361,6 @@ def add_photos_to_index(event_id: str, new_paths: List[Path]):
     with open(index_path, "w") as f:
         json.dump(data, f)
 
-    # Update result.json stats
     result_path = RESULTS_DIR / event_id / "result.json"
     if result_path.exists():
         with open(result_path) as f:
