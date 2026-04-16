@@ -24,7 +24,10 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 # face_recognition uses dlib under the hood — ~5 MB model, no TensorFlow, CPU-friendly
-import face_recognition
+# Imported lazily to avoid crashing the server if dlib has a linking issue at startup
+def _fr():
+    import face_recognition
+    return face_recognition
 
 DISTANCE_METRIC = "euclidean"
 THRESHOLD = 0.55  # face_recognition default tolerance is 0.6; 0.55 is slightly stricter
@@ -118,8 +121,9 @@ def compute_embedding(image_path: str) -> Optional[np.ndarray]:
     """Compute face embedding for a reference photo. Returns None if no face found."""
     _normalize_image(image_path)
     try:
-        image = face_recognition.load_image_file(image_path)
-        encodings = face_recognition.face_encodings(image)
+        fr = _fr()
+        image = fr.load_image_file(image_path)
+        encodings = fr.face_encodings(image)
         if encodings:
             return np.array(encodings[0])
         logger.warning(f"No face detected in {image_path}")
@@ -144,8 +148,9 @@ def extract_faces_with_embeddings(image_path: str) -> List[np.ndarray]:
     """
     _normalize_image(image_path)
     try:
-        image = face_recognition.load_image_file(image_path)
-        encodings = face_recognition.face_encodings(image)
+        fr = _fr()
+        image = fr.load_image_file(image_path)
+        encodings = fr.face_encodings(image)
         return [np.array(enc) for enc in encodings]
     except Exception as e:
         logger.warning(f"No faces or error in {image_path}: {e}")
