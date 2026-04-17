@@ -679,6 +679,9 @@ async def delete_event(event_id: str):
     if cohort_id:
         co.remove_event_from_cohort(cohort_id, event_id)
 
+    # Clean up Rekognition collection
+    await run_in_threadpool(fe.delete_event_collection, event_id)
+
     results_dir = fe.RESULTS_DIR / event_id
     if results_dir.exists():
         shutil.rmtree(results_dir)
