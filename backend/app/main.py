@@ -56,6 +56,7 @@ _PUBLIC_RE = re.compile(
     r"^(/api/health$"
     r"|/api/portal/"
     r"|/api/cohorts/[^/]+/portal-info$"
+    r"|/api/cohorts/[^/]+/match-selfie$"
     r"|/api/events/[^/]+/match-selfie$"
     r"|/api/events/[^/]+/add-photos$"
     r"|/api/events/[^/]+/info$"
@@ -865,6 +866,76 @@ async def match_selfie(
         selfie_path.unlink(missing_ok=True)
 
     return {"matched_photos": matched, "count": len(matched)}
+
+
+@app.post("/api/cohorts/{cohort_id}/match-selfie")
+async def match_selfie_in_cohort(
+    cohort_id: str,
+    file: UploadFile = File(...),
+    threshold: Optional[float] = Form(None),
+):
+    """Public: search a selfie across ALL events in a cohort, grouped by event."""
+    import asyncio
+
+    c = co.get_cohort(cohort_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Cohort no encontrado")
+
+    if threshold is not None:
+        threshold = max(0.30, min(0.80, threshold))
+
+    # Gather events that have been processed
+    processed_events = []
+    for eid in c.get("event_ids", []):
+        rp = fe.RESULTS_DIR / eid / "result.json"
+        if rp.exists():
+            with open(rp) as f:
+                d = json.load(f)
+            processed_events.append({
+                "event_id": eid,
+                "event_name": d.get("event_name", eid),
+                "created_at": d.get("created_at", ""),
+            })
+
+    if not processed_events:
+        return {"events": [], "total_matches": 0}
+
+    selfie_id = str(uuid.uuid4())
+    ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
+    if ext not in fe.SUPPORTED_EXTENSIONS:
+        ext = ".jpg"
+    selfie_path = TEMP_DIR / f"selfie_{selfie_id}{ext}"
+    async with aiofiles.open(selfie_path, "wb") as f:
+        content = await file.read()
+        await f.write(content)
+
+    try:
+        tasks = [
+            run_in_threadpool(fe.match_selfie_to_event, ev["event_id"], str(selfie_path), threshold)
+            for ev in processed_events
+        ]
+        results_per_event = await asyncio.gather(*tasks, return_exceptions=True)
+    finally:
+        selfie_path.unlink(missing_ok=True)
+
+    events = []
+    total = 0
+    for ev, matched in zip(processed_events, results_per_event):
+        if isinstance(matched, Exception):
+            logger.warning(f"Selfie match failed for event {ev['event_id']}: {matched}")
+            matched = []
+        events.append({
+            "event_id": ev["event_id"],
+            "event_name": ev["event_name"],
+            "created_at": ev["created_at"],
+            "matched_photos": matched,
+            "count": len(matched),
+        })
+        total += len(matched)
+
+    # Sort events chronologically so results read Day 1 → Day 2 → Day 3
+    events.sort(key=lambda e: e["created_at"] or "")
+    return {"events": events, "total_matches": total}
 
 
 @app.get("/api/events/{event_id}/photo/{filename}")

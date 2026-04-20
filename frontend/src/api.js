@@ -108,6 +108,13 @@ export const matchSelfie = (eventId, file, threshold = null) => {
   return api.post(`/api/events/${eventId}/match-selfie`, fd).then(r => r.data);
 };
 
+export const matchSelfieInCohort = (cohortId, file, threshold = null) => {
+  const fd = new FormData();
+  fd.append("file", file);
+  if (threshold !== null) fd.append("threshold", threshold);
+  return api.post(`/api/cohorts/${cohortId}/match-selfie`, fd).then(r => r.data);
+};
+
 export const getEventPhotoUrl = (eventId, filename) =>
   `${api.defaults.baseURL}/api/events/${eventId}/photo/${encodeURIComponent(filename)}`;
 
