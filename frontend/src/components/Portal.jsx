@@ -49,7 +49,7 @@ function Landing() {
 
           <span
             className="inline-block text-[10px] font-bold uppercase tracking-[0.18em] rounded-full px-3 py-1 mb-6"
-            style={{ background: "#ebff6f20", color: "#258053", border: "1px solid #ebff6f60" }}
+            style={{ background: "#ebff6f20", color: "#ebff6f", border: "1px solid #ebff6f60" }}
           >
             Comunidad 30X
           </span>
