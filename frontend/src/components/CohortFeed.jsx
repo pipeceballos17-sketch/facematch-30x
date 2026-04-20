@@ -26,7 +26,7 @@ function CohortCard({ cohort, onClick, onDelete }) {
     >
       <div
         className="h-1.5 w-full"
-        style={{ background: cohort.cover_color || "#CCFF47" }}
+        style={{ background: cohort.cover_color || "#ebff6f" }}
       />
 
       <div className="p-5">
@@ -34,9 +34,9 @@ function CohortCard({ cohort, onClick, onDelete }) {
           <span
             className="inline-block text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full mb-3"
             style={{
-              color: cohort.cover_color || "#CCFF47",
-              background: `${cohort.cover_color || "#CCFF47"}18`,
-              border: `1px solid ${cohort.cover_color || "#CCFF47"}30`,
+              color: cohort.cover_color || "#ebff6f",
+              background: `${cohort.cover_color || "#ebff6f"}18`,
+              border: `1px solid ${cohort.cover_color || "#ebff6f"}30`,
             }}
           >
             {cohort.program}

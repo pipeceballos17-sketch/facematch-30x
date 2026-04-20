@@ -346,9 +346,9 @@ export default function CohortDetail({ cohort, onBack, participantCount }) {
             <span
               className="inline-block text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full mb-2"
               style={{
-                color: cohort.cover_color || "#CCFF47",
-                background: `${cohort.cover_color || "#CCFF47"}18`,
-                border: `1px solid ${cohort.cover_color || "#CCFF47"}30`,
+                color: cohort.cover_color || "#ebff6f",
+                background: `${cohort.cover_color || "#ebff6f"}18`,
+                border: `1px solid ${cohort.cover_color || "#ebff6f"}30`,
               }}
             >
               {cohort.program}

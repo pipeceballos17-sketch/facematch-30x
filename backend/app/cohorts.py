@@ -13,16 +13,16 @@ from app.config import STORAGE_BASE
 COHORTS_DIR = STORAGE_BASE / "cohorts"
 COHORTS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Gradient palette rotated through for cover backgrounds
+# 30X brand palette rotated through for cover backgrounds
 COVER_COLORS = [
-    "#CCFF47",  # lime (brand)
-    "#3B82F6",  # blue
-    "#8B5CF6",  # violet
-    "#EC4899",  # pink
-    "#F59E0B",  # amber
-    "#10B981",  # emerald
-    "#EF4444",  # red
-    "#06B6D4",  # cyan
+    "#ebff6f",  # pastel lime (brand primary)
+    "#942143",  # wine
+    "#172452",  # navy
+    "#258053",  # forest
+    "#babe60",  # olive-lime
+    "#cfc6b3",  # warm taupe
+    "#1c1c1c",  # ink
+    "#868073",  # warm muted
 ]
 
 

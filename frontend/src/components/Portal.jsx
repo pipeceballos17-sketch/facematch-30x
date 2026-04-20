@@ -36,30 +36,30 @@ function Landing() {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#fff", color: "#111827" }} className="flex flex-col">
+    <div style={{ minHeight: "100vh", background: "#f7f5f2", color: "#1c1c1c" }} className="flex flex-col">
 
-      <header style={{ borderBottom: "1px solid #E5E7EB", background: "#fff" }} className="sticky top-0 z-10">
+      <header style={{ borderBottom: "1px solid #e3dfd7", background: "#f7f5f2" }} className="sticky top-0 z-10">
         <div className="max-w-xl mx-auto px-5 h-14 flex items-center">
           <img src={LOGO} alt="30X" className="h-7" />
         </div>
       </header>
 
-      <section style={{ background: "#F9FAFB", borderBottom: "1px solid #E5E7EB" }}>
+      <section style={{ background: "#fafafa", borderBottom: "1px solid #e3dfd7" }}>
         <div className="max-w-xl mx-auto px-5 py-16 text-center">
 
           <span
             className="inline-block text-[10px] font-bold uppercase tracking-[0.18em] rounded-full px-3 py-1 mb-6"
-            style={{ background: "#CCFF4720", color: "#6B9900", border: "1px solid #CCFF4760" }}
+            style={{ background: "#ebff6f20", color: "#258053", border: "1px solid #ebff6f60" }}
           >
             Comunidad 30X
           </span>
 
-          <h1 className="text-4xl font-black leading-[1.1] mb-5" style={{ color: "#111827" }}>
+          <h1 className="text-4xl font-black leading-[1.1] mb-5" style={{ color: "#1c1c1c" }}>
             Gracias por ser<br />
-            <span style={{ color: "#7DB000" }}>parte de 30X.</span>
+            <span style={{ color: "#942143" }}>parte de 30X.</span>
           </h1>
 
-          <p className="text-base leading-relaxed max-w-sm mx-auto" style={{ color: "#6B7280" }}>
+          <p className="text-base leading-relaxed max-w-sm mx-auto" style={{ color: "#525252" }}>
             Aquí encontrarás todas tus fotos de los eventos 30X.
             Solo sube una selfie y nuestro sistema te identifica automáticamente.
           </p>
@@ -69,7 +69,7 @@ function Landing() {
       <div className="max-w-xl mx-auto px-5 w-full pb-16 flex-1">
 
         <div className="mt-10 mb-10">
-          <p className="text-xs font-bold uppercase tracking-widest mb-5" style={{ color: "#9CA3AF" }}>
+          <p className="text-xs font-bold uppercase tracking-widest mb-5" style={{ color: "#868073" }}>
             Cómo funciona
           </p>
           <div className="grid grid-cols-2 gap-3">
@@ -82,38 +82,38 @@ function Landing() {
               <div
                 key={n}
                 className="rounded-2xl p-4"
-                style={{ background: "#F9FAFB", border: "1px solid #E5E7EB" }}
+                style={{ background: "#fafafa", border: "1px solid #e3dfd7" }}
               >
                 <div
                   className="w-8 h-8 rounded-xl flex items-center justify-center mb-3"
-                  style={{ background: "#CCFF4725" }}
+                  style={{ background: "#ebff6f25" }}
                 >
-                  <Icon size={15} style={{ color: "#6B9900" }} />
+                  <Icon size={15} style={{ color: "#258053" }} />
                 </div>
-                <p className="text-xs font-bold mb-0.5" style={{ color: "#111827" }}>{title}</p>
-                <p className="text-[11px] leading-relaxed" style={{ color: "#9CA3AF" }}>{sub}</p>
+                <p className="text-xs font-bold mb-0.5" style={{ color: "#1c1c1c" }}>{title}</p>
+                <p className="text-[11px] leading-relaxed" style={{ color: "#868073" }}>{sub}</p>
               </div>
             ))}
           </div>
         </div>
 
-        <p className="text-xs font-bold uppercase tracking-widest mb-4" style={{ color: "#9CA3AF" }}>
+        <p className="text-xs font-bold uppercase tracking-widest mb-4" style={{ color: "#868073" }}>
           ¿En qué cohort estuviste?
         </p>
 
         {loading && (
           <div className="flex justify-center py-10">
-            <Loader size={24} className="animate-spin" style={{ color: "#CCFF47" }} />
+            <Loader size={24} className="animate-spin" style={{ color: "#ebff6f" }} />
           </div>
         )}
 
         {!loading && cohorts.filter(c => c.total_photos > 0).length === 0 && (
           <div
             className="text-center py-14 rounded-2xl"
-            style={{ border: "2px dashed #E5E7EB" }}
+            style={{ border: "2px dashed #e3dfd7" }}
           >
-            <CalendarDays size={28} className="mx-auto mb-3" style={{ color: "#D1D5DB" }} />
-            <p className="text-sm" style={{ color: "#9CA3AF" }}>Aún no hay eventos disponibles.</p>
+            <CalendarDays size={28} className="mx-auto mb-3" style={{ color: "#cfc6b3" }} />
+            <p className="text-sm" style={{ color: "#868073" }}>Aún no hay eventos disponibles.</p>
           </div>
         )}
 
@@ -124,49 +124,49 @@ function Landing() {
                 key={c.cohort_id}
                 onClick={() => goToCohort(c.cohort_id)}
                 className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl text-left transition-all"
-                style={{ background: "#F9FAFB", border: "1px solid #E5E7EB" }}
+                style={{ background: "#fafafa", border: "1px solid #e3dfd7" }}
                 onMouseEnter={e => {
-                  e.currentTarget.style.borderColor = "#CCFF47";
-                  e.currentTarget.style.background = "#FCFFE8";
+                  e.currentTarget.style.borderColor = "#ebff6f";
+                  e.currentTarget.style.background = "#fbffda";
                 }}
                 onMouseLeave={e => {
-                  e.currentTarget.style.borderColor = "#E5E7EB";
-                  e.currentTarget.style.background = "#F9FAFB";
+                  e.currentTarget.style.borderColor = "#e3dfd7";
+                  e.currentTarget.style.background = "#fafafa";
                 }}
               >
                 <div
                   className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
                   style={{
-                    background: `${c.cover_color || "#CCFF47"}20`,
-                    border: `1px solid ${c.cover_color || "#CCFF47"}50`,
+                    background: `${c.cover_color || "#ebff6f"}20`,
+                    border: `1px solid ${c.cover_color || "#ebff6f"}50`,
                   }}
                 >
-                  <Images size={16} style={{ color: c.cover_color || "#AEDD2E" }} />
+                  <Images size={16} style={{ color: c.cover_color || "#babe60" }} />
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold truncate" style={{ color: "#111827" }}>
+                  <p className="text-sm font-bold truncate" style={{ color: "#1c1c1c" }}>
                     {c.cohort_name}
                   </p>
-                  <p className="text-xs mt-0.5" style={{ color: "#9CA3AF" }}>
+                  <p className="text-xs mt-0.5" style={{ color: "#868073" }}>
                     {c.program && <span>{c.program} · </span>}
                     {c.total_photos} fotos
                     {c.event_count > 1 && <span> · {c.event_count} días</span>}
                   </p>
                 </div>
 
-                <ChevronRight size={16} style={{ color: "#D1D5DB" }} />
+                <ChevronRight size={16} style={{ color: "#cfc6b3" }} />
               </button>
             ))}
           </div>
         )}
 
         <div className="text-center mt-14">
-          <p className="text-xs leading-relaxed" style={{ color: "#D1D5DB" }}>
+          <p className="text-xs leading-relaxed" style={{ color: "#cfc6b3" }}>
             No te preparamos para el futuro.{" "}
-            <span style={{ color: "#AEDD2E", fontWeight: 600 }}>Te ponemos a construirlo.</span>
+            <span style={{ color: "#babe60", fontWeight: 600 }}>Te ponemos a construirlo.</span>
           </p>
-          <p className="text-[10px] mt-2" style={{ color: "#E5E7EB" }}>
+          <p className="text-[10px] mt-2" style={{ color: "#e3dfd7" }}>
             30X Facematch · {new Date().getFullYear()}
           </p>
         </div>
@@ -255,18 +255,18 @@ function CohortPortal({ cohortId }) {
   const goBackToLanding = () => { window.location.hash = "#portal"; };
 
   const topBar = (title, subtitle, onBack) => (
-    <header style={{ borderBottom: "1px solid #E5E7EB", background: "#fff" }} className="sticky top-0 z-10">
+    <header style={{ borderBottom: "1px solid #e3dfd7", background: "#f7f5f2" }} className="sticky top-0 z-10">
       <div className="max-w-xl mx-auto px-5 h-14 flex items-center gap-3">
         <button
           onClick={onBack}
           className="p-2 rounded-xl transition-colors"
-          style={{ border: "1px solid #E5E7EB", color: "#6B7280" }}
+          style={{ border: "1px solid #e3dfd7", color: "#525252" }}
         >
           <ArrowLeft size={16} />
         </button>
         <div className="flex-1 min-w-0">
-          {subtitle && <p className="text-[11px]" style={{ color: "#9CA3AF" }}>{subtitle}</p>}
-          {title && <p className="text-sm font-bold truncate" style={{ color: "#111827" }}>{title}</p>}
+          {subtitle && <p className="text-[11px]" style={{ color: "#868073" }}>{subtitle}</p>}
+          {title && <p className="text-sm font-bold truncate" style={{ color: "#1c1c1c" }}>{title}</p>}
         </div>
         <img src={LOGO} alt="30X" className="h-6 shrink-0" />
       </div>
@@ -274,16 +274,16 @@ function CohortPortal({ cohortId }) {
   );
 
   if (loadingInfo) return (
-    <div style={{ minHeight: "100vh", background: "#fff" }} className="flex items-center justify-center">
-      <Loader size={32} className="animate-spin" style={{ color: "#CCFF47" }} />
+    <div style={{ minHeight: "100vh", background: "#f7f5f2" }} className="flex items-center justify-center">
+      <Loader size={32} className="animate-spin" style={{ color: "#ebff6f" }} />
     </div>
   );
 
   if (infoError) return (
-    <div style={{ minHeight: "100vh", background: "#fff" }} className="flex flex-col items-center justify-center p-6 text-center gap-4">
+    <div style={{ minHeight: "100vh", background: "#f7f5f2" }} className="flex flex-col items-center justify-center p-6 text-center gap-4">
       <img src={LOGO} alt="30X" className="h-8" />
-      <p className="text-sm" style={{ color: "#6B7280" }}>{infoError}</p>
-      <button onClick={goBackToLanding} className="text-sm underline underline-offset-2" style={{ color: "#AEDD2E" }}>
+      <p className="text-sm" style={{ color: "#525252" }}>{infoError}</p>
+      <button onClick={goBackToLanding} className="text-sm underline underline-offset-2" style={{ color: "#babe60" }}>
         Volver al inicio
       </button>
     </div>
@@ -292,7 +292,7 @@ function CohortPortal({ cohortId }) {
   const totalPhotosInCohort = (cohortInfo.events || []).reduce((s, e) => s + (e.total_photos || 0), 0);
 
   return (
-    <div style={{ minHeight: "100vh", background: "#fff", color: "#111827" }}>
+    <div style={{ minHeight: "100vh", background: "#f7f5f2", color: "#1c1c1c" }}>
       {topBar(cohortInfo.cohort_name, cohortInfo.program || "Cohort", goBackToLanding)}
 
       <div className="max-w-xl mx-auto px-5 py-8">
@@ -300,16 +300,16 @@ function CohortPortal({ cohortId }) {
         {/* ── Upload selfie ────────────────────────────────────── */}
         {step === "upload" && (
           <div className="space-y-4">
-            <div className="rounded-2xl p-6" style={{ background: "#F9FAFB", border: "1px solid #E5E7EB" }}>
+            <div className="rounded-2xl p-6" style={{ background: "#fafafa", border: "1px solid #e3dfd7" }}>
               <div className="text-center mb-6">
                 <div
                   className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
-                  style={{ background: "#CCFF4720" }}
+                  style={{ background: "#ebff6f20" }}
                 >
-                  <Search size={24} style={{ color: "#6B9900" }} />
+                  <Search size={24} style={{ color: "#258053" }} />
                 </div>
-                <h2 className="font-bold text-lg mb-1" style={{ color: "#111827" }}>Encuéntrate en las fotos</h2>
-                <p className="text-sm" style={{ color: "#6B7280" }}>
+                <h2 className="font-bold text-lg mb-1" style={{ color: "#1c1c1c" }}>Encuéntrate en las fotos</h2>
+                <p className="text-sm" style={{ color: "#525252" }}>
                   Sube una selfie y te buscamos en {totalPhotosInCohort} fotos
                   {cohortInfo.events?.length > 1 && ` de ${cohortInfo.events.length} días`}.
                 </p>
@@ -323,12 +323,12 @@ function CohortPortal({ cohortId }) {
                       src={selfiePreview}
                       alt="Tu selfie"
                       className="w-32 h-32 rounded-full object-cover"
-                      style={{ border: "3px solid #CCFF47" }}
+                      style={{ border: "3px solid #ebff6f" }}
                     />
                     <button
                       onClick={resetSelfie}
                       className="absolute -top-1 -right-1 rounded-full p-1"
-                      style={{ background: "#fff", border: "1px solid #E5E7EB", color: "#9CA3AF" }}
+                      style={{ background: "#f7f5f2", border: "1px solid #e3dfd7", color: "#868073" }}
                     >
                       <X size={12} />
                     </button>
@@ -339,35 +339,35 @@ function CohortPortal({ cohortId }) {
                   <button
                     onClick={() => cameraInputRef.current?.click()}
                     className="flex flex-col items-center justify-center gap-2 py-6 rounded-2xl transition-all"
-                    style={{ background: "#fff", border: "1px solid #E5E7EB" }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor = "#CCFF47"; e.currentTarget.style.background = "#FCFFE8"; }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = "#E5E7EB"; e.currentTarget.style.background = "#fff"; }}
+                    style={{ background: "#f7f5f2", border: "1px solid #e3dfd7" }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = "#ebff6f"; e.currentTarget.style.background = "#fbffda"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = "#e3dfd7"; e.currentTarget.style.background = "#fff"; }}
                   >
                     <div
                       className="w-12 h-12 rounded-2xl flex items-center justify-center"
-                      style={{ background: "#CCFF4725" }}
+                      style={{ background: "#ebff6f25" }}
                     >
-                      <Camera size={22} style={{ color: "#6B9900" }} />
+                      <Camera size={22} style={{ color: "#258053" }} />
                     </div>
-                    <span className="text-sm font-bold" style={{ color: "#111827" }}>Tomar selfie</span>
-                    <span className="text-[11px]" style={{ color: "#9CA3AF" }}>Usar la cámara</span>
+                    <span className="text-sm font-bold" style={{ color: "#1c1c1c" }}>Tomar selfie</span>
+                    <span className="text-[11px]" style={{ color: "#868073" }}>Usar la cámara</span>
                   </button>
 
                   <button
                     onClick={() => galleryInputRef.current?.click()}
                     className="flex flex-col items-center justify-center gap-2 py-6 rounded-2xl transition-all"
-                    style={{ background: "#fff", border: "1px solid #E5E7EB" }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor = "#CCFF47"; e.currentTarget.style.background = "#FCFFE8"; }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = "#E5E7EB"; e.currentTarget.style.background = "#fff"; }}
+                    style={{ background: "#f7f5f2", border: "1px solid #e3dfd7" }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = "#ebff6f"; e.currentTarget.style.background = "#fbffda"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = "#e3dfd7"; e.currentTarget.style.background = "#fff"; }}
                   >
                     <div
                       className="w-12 h-12 rounded-2xl flex items-center justify-center"
-                      style={{ background: "#F3F4F6" }}
+                      style={{ background: "#efebe2" }}
                     >
-                      <ImageIcon size={22} style={{ color: "#6B7280" }} />
+                      <ImageIcon size={22} style={{ color: "#525252" }} />
                     </div>
-                    <span className="text-sm font-bold" style={{ color: "#111827" }}>Desde galería</span>
-                    <span className="text-[11px]" style={{ color: "#9CA3AF" }}>Elegir una foto</span>
+                    <span className="text-sm font-bold" style={{ color: "#1c1c1c" }}>Desde galería</span>
+                    <span className="text-[11px]" style={{ color: "#868073" }}>Elegir una foto</span>
                   </button>
 
                   <input
@@ -394,15 +394,15 @@ function CohortPortal({ cohortId }) {
                 onClick={() => handleMatch(false)}
                 disabled={!selfieFile || matching}
                 className="w-full font-bold py-3 rounded-xl transition-colors disabled:opacity-40"
-                style={{ background: "#CCFF47", color: "#111827" }}
-                onMouseEnter={e => { if (selfieFile) e.currentTarget.style.background = "#AEDD2E"; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "#CCFF47"; }}
+                style={{ background: "#ebff6f", color: "#1c1c1c" }}
+                onMouseEnter={e => { if (selfieFile) e.currentTarget.style.background = "#babe60"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "#ebff6f"; }}
               >
                 Buscar mis fotos
               </button>
             </div>
 
-            <p className="text-[11px] text-center" style={{ color: "#9CA3AF" }}>
+            <p className="text-[11px] text-center" style={{ color: "#868073" }}>
               Tip: usa una foto con buena luz, de frente y con tu cara despejada.
             </p>
           </div>
@@ -412,11 +412,11 @@ function CohortPortal({ cohortId }) {
         {step === "matching" && (
           <div className="text-center py-24">
             <div className="relative inline-block mb-6">
-              <Loader size={52} className="animate-spin" style={{ color: "#CCFF47" }} />
-              <Sparkles size={20} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" style={{ color: "#6B9900" }} />
+              <Loader size={52} className="animate-spin" style={{ color: "#ebff6f" }} />
+              <Sparkles size={20} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" style={{ color: "#258053" }} />
             </div>
-            <p className="font-bold text-lg mb-1" style={{ color: "#111827" }}>Buscando tu cara...</p>
-            <p className="text-sm" style={{ color: "#9CA3AF" }}>
+            <p className="font-bold text-lg mb-1" style={{ color: "#1c1c1c" }}>Buscando tu cara...</p>
+            <p className="text-sm" style={{ color: "#868073" }}>
               Analizando {totalPhotosInCohort} fotos
               {cohortInfo.events?.length > 1 && ` de ${cohortInfo.events.length} días`}
             </p>
@@ -429,24 +429,24 @@ function CohortPortal({ cohortId }) {
             <div
               className="rounded-2xl p-4 mb-6 flex items-center gap-3"
               style={{
-                background: totalMatches > 0 ? "#F0FFF4" : "#FFF5F5",
-                border: `1px solid ${totalMatches > 0 ? "#BBF7D0" : "#FECACA"}`,
+                background: totalMatches > 0 ? "#e8f5eb" : "#fbebed",
+                border: `1px solid ${totalMatches > 0 ? "#c7e6d1" : "#e8b5bd"}`,
               }}
             >
               <button
                 onClick={() => { setStep("upload"); setResultEvents([]); setTotalMatches(0); }}
                 className="p-1.5 rounded-lg shrink-0"
-                style={{ border: "1px solid #E5E7EB", color: "#9CA3AF", background: "#fff" }}
+                style={{ border: "1px solid #e3dfd7", color: "#868073", background: "#f7f5f2" }}
               >
                 <ArrowLeft size={14} />
               </button>
               <div>
-                <h2 className="font-bold text-sm" style={{ color: "#111827" }}>
+                <h2 className="font-bold text-sm" style={{ color: "#1c1c1c" }}>
                   {totalMatches > 0
                     ? `¡Apareces en ${totalMatches} foto${totalMatches !== 1 ? "s" : ""}!`
                     : "No te encontramos"}
                 </h2>
-                <p className="text-xs mt-0.5" style={{ color: "#6B7280" }}>
+                <p className="text-xs mt-0.5" style={{ color: "#525252" }}>
                   {totalMatches > 0
                     ? "Toca para ver en grande · descarga todas abajo"
                     : "Intenta con una foto más clara y de frente"}
@@ -462,22 +462,22 @@ function CohortPortal({ cohortId }) {
                       <div className="flex items-center gap-2">
                         <div
                           className="w-7 h-7 rounded-lg flex items-center justify-center"
-                          style={{ background: "#CCFF4720" }}
+                          style={{ background: "#ebff6f20" }}
                         >
-                          <CalendarDays size={13} style={{ color: "#6B9900" }} />
+                          <CalendarDays size={13} style={{ color: "#258053" }} />
                         </div>
                         <div>
-                          <p className="text-sm font-bold" style={{ color: "#111827" }}>
+                          <p className="text-sm font-bold" style={{ color: "#1c1c1c" }}>
                             {resultEvents.length > 1 ? `Día ${idx + 1} — ` : ""}{ev.event_name}
                           </p>
                           {ev.created_at && (
-                            <p className="text-[10px]" style={{ color: "#9CA3AF" }}>
+                            <p className="text-[10px]" style={{ color: "#868073" }}>
                               {formatEventDate(ev.created_at)}
                             </p>
                           )}
                         </div>
                       </div>
-                      <span className="text-xs font-bold" style={{ color: "#6B9900" }}>
+                      <span className="text-xs font-bold" style={{ color: "#258053" }}>
                         {ev.count} foto{ev.count !== 1 ? "s" : ""}
                       </span>
                     </div>
@@ -488,7 +488,7 @@ function CohortPortal({ cohortId }) {
                             src={getEventPhotoUrl(ev.event_id, filename)}
                             alt={filename}
                             className="w-full aspect-square object-cover rounded-xl transition-all hover:opacity-90"
-                            style={{ border: "1px solid #E5E7EB" }}
+                            style={{ border: "1px solid #e3dfd7" }}
                             loading="lazy"
                           />
                         </a>
@@ -499,18 +499,18 @@ function CohortPortal({ cohortId }) {
                 <button
                   onClick={handleDownloadAll}
                   className="w-full flex items-center justify-center gap-2 font-bold py-3 rounded-xl transition-colors"
-                  style={{ background: "#CCFF47", color: "#111827" }}
-                  onMouseEnter={e => { e.currentTarget.style.background = "#AEDD2E"; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = "#CCFF47"; }}
+                  style={{ background: "#ebff6f", color: "#1c1c1c" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "#babe60"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "#ebff6f"; }}
                 >
                   <Download size={16} /> Descargar todas mis fotos
                 </button>
               </>
             ) : (
-              <div className="text-center py-10 rounded-2xl" style={{ border: "2px dashed #E5E7EB" }}>
-                <ImageOff size={32} className="mx-auto mb-3" style={{ color: "#D1D5DB" }} />
-                <p className="text-sm mb-1" style={{ color: "#6B7280" }}>No encontramos tu cara en este cohort.</p>
-                <p className="text-xs" style={{ color: "#9CA3AF" }}>
+              <div className="text-center py-10 rounded-2xl" style={{ border: "2px dashed #e3dfd7" }}>
+                <ImageOff size={32} className="mx-auto mb-3" style={{ color: "#cfc6b3" }} />
+                <p className="text-sm mb-1" style={{ color: "#525252" }}>No encontramos tu cara en este cohort.</p>
+                <p className="text-xs" style={{ color: "#868073" }}>
                   {usedWideSearch
                     ? "Prueba con una foto más clara, de frente y con buena iluminación."
                     : "Puede que la foto no sea suficientemente clara."}
@@ -521,7 +521,7 @@ function CohortPortal({ cohortId }) {
                     <button
                       onClick={() => handleMatch(true)}
                       className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors"
-                      style={{ background: "#CCFF4720", border: "1px solid #CCFF4760", color: "#6B9900" }}
+                      style={{ background: "#ebff6f20", border: "1px solid #ebff6f60", color: "#258053" }}
                     >
                       Buscar con menor precisión
                     </button>
@@ -529,7 +529,7 @@ function CohortPortal({ cohortId }) {
                   <button
                     onClick={() => { setStep("upload"); resetSelfie(); setResultEvents([]); setTotalMatches(0); setUsedWideSearch(false); }}
                     className="px-5 py-2.5 rounded-xl text-sm transition-colors"
-                    style={{ border: "1px solid #E5E7EB", color: "#6B7280", background: "#fff" }}
+                    style={{ border: "1px solid #e3dfd7", color: "#525252", background: "#f7f5f2" }}
                   >
                     Intentar con otra foto
                   </button>

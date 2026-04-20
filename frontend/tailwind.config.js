@@ -4,24 +4,29 @@ export default {
   theme: {
     extend: {
       colors: {
-        // 30X brand palette
+        // 30X brand palette — editorial, warm-corporate
         lime: {
-          DEFAULT: "#CCFF47",   // The X — primary accent
-          dim:     "#AEDD2E",   // hover state
-          muted:   "#CCFF4720", // transparent tint for backgrounds
-          border:  "#CCFF4740", // subtle border
+          DEFAULT: "#ebff6f",   // soft pastel lime — primary accent
+          dim:     "#babe60",   // olive-lime hover
+          muted:   "#ebff6f25", // transparent tint
+          border:  "#ebff6f50", // subtle border
         },
         x: {
-          bg:      "#FFFFFF",   // page background
-          surface: "#F7F8FA",   // card background
-          surface2:"#EDEEF1",   // elevated surface / inputs
-          border:  "#E1E4E9",   // default border
-          border2: "#C5CAD2",   // stronger border
-          text:    "#111827",   // primary text
-          muted:   "#6B7280",   // secondary text
-          faint:   "#9CA3AF",   // very muted / placeholder
-          ink:     "#111827",   // dark ink — always dark (text on lime buttons)
+          bg:      "#f7f5f2",   // warm cream — page background
+          surface: "#fafafa",   // off-white cards
+          surface2:"#efebe2",   // warm elevated surface
+          border:  "#e3dfd7",   // warm subtle border
+          border2: "#cfc6b3",   // warm stronger border
+          text:    "#1c1c1c",   // primary text (soft black)
+          muted:   "#525252",   // secondary text
+          faint:   "#868073",   // warm-muted tertiary
+          ink:     "#1c1c1c",   // dark ink (text on lime buttons)
         },
+        // Editorial accents — used sparingly for tags/badges
+        wine:    "#942143",
+        navy:    "#172452",
+        forest:  "#258053",
+        sand:    "#efebe2",
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "-apple-system", "sans-serif"],
