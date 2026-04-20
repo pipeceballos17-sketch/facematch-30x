@@ -59,7 +59,7 @@ function Landing() {
             <span style={{ color: "#ebff6f" }}>parte de 30X.</span>
           </h1>
 
-          <p className="text-base leading-relaxed max-w-sm mx-auto" style={{ color: "#a3a3a3" }}>
+          <p className="text-base leading-relaxed max-w-sm mx-auto" style={{ color: "#fafafa" }}>
             Aquí encontrarás todas tus fotos de los eventos 30X.
             Solo sube una selfie y nuestro sistema te identifica automáticamente.
           </p>
@@ -69,7 +69,7 @@ function Landing() {
       <div className="max-w-xl mx-auto px-5 w-full pb-16 flex-1">
 
         <div className="mt-10 mb-10">
-          <p className="text-xs font-bold uppercase tracking-widest mb-5" style={{ color: "#737373" }}>
+          <p className="text-xs font-bold uppercase tracking-widest mb-5" style={{ color: "#fafafa" }}>
             Cómo funciona
           </p>
           <div className="grid grid-cols-2 gap-3">
@@ -88,16 +88,16 @@ function Landing() {
                   className="w-8 h-8 rounded-xl flex items-center justify-center mb-3"
                   style={{ background: "#ebff6f25" }}
                 >
-                  <Icon size={15} style={{ color: "#258053" }} />
+                  <Icon size={15} style={{ color: "#ebff6f" }} />
                 </div>
                 <p className="text-xs font-bold mb-0.5" style={{ color: "#fafafa" }}>{title}</p>
-                <p className="text-[11px] leading-relaxed" style={{ color: "#737373" }}>{sub}</p>
+                <p className="text-[11px] leading-relaxed" style={{ color: "#fafafa" }}>{sub}</p>
               </div>
             ))}
           </div>
         </div>
 
-        <p className="text-xs font-bold uppercase tracking-widest mb-4" style={{ color: "#737373" }}>
+        <p className="text-xs font-bold uppercase tracking-widest mb-4" style={{ color: "#fafafa" }}>
           ¿En qué cohort estuviste?
         </p>
 
@@ -112,8 +112,8 @@ function Landing() {
             className="text-center py-14 rounded-2xl"
             style={{ border: "2px dashed #2d2d2d" }}
           >
-            <CalendarDays size={28} className="mx-auto mb-3" style={{ color: "#525252" }} />
-            <p className="text-sm" style={{ color: "#737373" }}>Aún no hay eventos disponibles.</p>
+            <CalendarDays size={28} className="mx-auto mb-3" style={{ color: "#ebff6f" }} />
+            <p className="text-sm" style={{ color: "#fafafa" }}>Aún no hay eventos disponibles.</p>
           </div>
         )}
 
@@ -148,21 +148,21 @@ function Landing() {
                   <p className="text-sm font-bold truncate" style={{ color: "#fafafa" }}>
                     {c.cohort_name}
                   </p>
-                  <p className="text-xs mt-0.5" style={{ color: "#737373" }}>
+                  <p className="text-xs mt-0.5" style={{ color: "#fafafa" }}>
                     {c.program && <span>{c.program} · </span>}
                     {c.total_photos} fotos
                     {c.event_count > 1 && <span> · {c.event_count} días</span>}
                   </p>
                 </div>
 
-                <ChevronRight size={16} style={{ color: "#525252" }} />
+                <ChevronRight size={16} style={{ color: "#ebff6f" }} />
               </button>
             ))}
           </div>
         )}
 
         <div className="text-center mt-14">
-          <p className="text-xs leading-relaxed" style={{ color: "#525252" }}>
+          <p className="text-xs leading-relaxed" style={{ color: "#fafafa" }}>
             No te preparamos para el futuro.{" "}
             <span style={{ color: "#babe60", fontWeight: 600 }}>Te ponemos a construirlo.</span>
           </p>
@@ -260,12 +260,12 @@ function CohortPortal({ cohortId }) {
         <button
           onClick={onBack}
           className="p-2 rounded-xl transition-colors"
-          style={{ border: "1px solid #2d2d2d", color: "#a3a3a3" }}
+          style={{ border: "1px solid #2d2d2d", color: "#ebff6f" }}
         >
           <ArrowLeft size={16} />
         </button>
         <div className="flex-1 min-w-0">
-          {subtitle && <p className="text-[11px]" style={{ color: "#737373" }}>{subtitle}</p>}
+          {subtitle && <p className="text-[11px]" style={{ color: "#fafafa" }}>{subtitle}</p>}
           {title && <p className="text-sm font-bold truncate" style={{ color: "#fafafa" }}>{title}</p>}
         </div>
         <img src={LOGO} alt="30X" className="h-6 shrink-0" />
@@ -282,7 +282,7 @@ function CohortPortal({ cohortId }) {
   if (infoError) return (
     <div style={{ minHeight: "100vh", background: "#0a0a0a" }} className="flex flex-col items-center justify-center p-6 text-center gap-4">
       <img src={LOGO} alt="30X" className="h-8" />
-      <p className="text-sm" style={{ color: "#a3a3a3" }}>{infoError}</p>
+      <p className="text-sm" style={{ color: "#fafafa" }}>{infoError}</p>
       <button onClick={goBackToLanding} className="text-sm underline underline-offset-2" style={{ color: "#babe60" }}>
         Volver al inicio
       </button>
@@ -306,10 +306,10 @@ function CohortPortal({ cohortId }) {
                   className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
                   style={{ background: "#ebff6f20" }}
                 >
-                  <Search size={24} style={{ color: "#258053" }} />
+                  <Search size={24} style={{ color: "#ebff6f" }} />
                 </div>
                 <h2 className="font-bold text-lg mb-1" style={{ color: "#fafafa" }}>Encuéntrate en las fotos</h2>
-                <p className="text-sm" style={{ color: "#a3a3a3" }}>
+                <p className="text-sm" style={{ color: "#fafafa" }}>
                   Sube una selfie y te buscamos en {totalPhotosInCohort} fotos
                   {cohortInfo.events?.length > 1 && ` de ${cohortInfo.events.length} días`}.
                 </p>
@@ -328,7 +328,7 @@ function CohortPortal({ cohortId }) {
                     <button
                       onClick={resetSelfie}
                       className="absolute -top-1 -right-1 rounded-full p-1"
-                      style={{ background: "#0a0a0a", border: "1px solid #2d2d2d", color: "#737373" }}
+                      style={{ background: "#0a0a0a", border: "1px solid #2d2d2d", color: "#ebff6f" }}
                     >
                       <X size={12} />
                     </button>
@@ -347,10 +347,10 @@ function CohortPortal({ cohortId }) {
                       className="w-12 h-12 rounded-2xl flex items-center justify-center"
                       style={{ background: "#ebff6f25" }}
                     >
-                      <Camera size={22} style={{ color: "#258053" }} />
+                      <Camera size={22} style={{ color: "#ebff6f" }} />
                     </div>
                     <span className="text-sm font-bold" style={{ color: "#fafafa" }}>Tomar selfie</span>
-                    <span className="text-[11px]" style={{ color: "#737373" }}>Usar la cámara</span>
+                    <span className="text-[11px]" style={{ color: "#fafafa" }}>Usar la cámara</span>
                   </button>
 
                   <button
@@ -364,10 +364,10 @@ function CohortPortal({ cohortId }) {
                       className="w-12 h-12 rounded-2xl flex items-center justify-center"
                       style={{ background: "#272b2d" }}
                     >
-                      <ImageIcon size={22} style={{ color: "#a3a3a3" }} />
+                      <ImageIcon size={22} style={{ color: "#ebff6f" }} />
                     </div>
                     <span className="text-sm font-bold" style={{ color: "#fafafa" }}>Desde galería</span>
-                    <span className="text-[11px]" style={{ color: "#737373" }}>Elegir una foto</span>
+                    <span className="text-[11px]" style={{ color: "#fafafa" }}>Elegir una foto</span>
                   </button>
 
                   <input
@@ -402,7 +402,7 @@ function CohortPortal({ cohortId }) {
               </button>
             </div>
 
-            <p className="text-[11px] text-center" style={{ color: "#737373" }}>
+            <p className="text-[11px] text-center" style={{ color: "#fafafa" }}>
               Tip: usa una foto con buena luz, de frente y con tu cara despejada.
             </p>
           </div>
@@ -413,10 +413,10 @@ function CohortPortal({ cohortId }) {
           <div className="text-center py-24">
             <div className="relative inline-block mb-6">
               <Loader size={52} className="animate-spin" style={{ color: "#ebff6f" }} />
-              <Sparkles size={20} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" style={{ color: "#258053" }} />
+              <Sparkles size={20} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" style={{ color: "#ebff6f" }} />
             </div>
             <p className="font-bold text-lg mb-1" style={{ color: "#fafafa" }}>Buscando tu cara...</p>
-            <p className="text-sm" style={{ color: "#737373" }}>
+            <p className="text-sm" style={{ color: "#fafafa" }}>
               Analizando {totalPhotosInCohort} fotos
               {cohortInfo.events?.length > 1 && ` de ${cohortInfo.events.length} días`}
             </p>
@@ -436,7 +436,7 @@ function CohortPortal({ cohortId }) {
               <button
                 onClick={() => { setStep("upload"); setResultEvents([]); setTotalMatches(0); }}
                 className="p-1.5 rounded-lg shrink-0"
-                style={{ border: "1px solid #2d2d2d", color: "#737373", background: "#0a0a0a" }}
+                style={{ border: "1px solid #2d2d2d", color: "#ebff6f", background: "#0a0a0a" }}
               >
                 <ArrowLeft size={14} />
               </button>
@@ -446,7 +446,7 @@ function CohortPortal({ cohortId }) {
                     ? `¡Apareces en ${totalMatches} foto${totalMatches !== 1 ? "s" : ""}!`
                     : "No te encontramos"}
                 </h2>
-                <p className="text-xs mt-0.5" style={{ color: "#a3a3a3" }}>
+                <p className="text-xs mt-0.5" style={{ color: "#fafafa" }}>
                   {totalMatches > 0
                     ? "Toca para ver en grande · descarga todas abajo"
                     : "Intenta con una foto más clara y de frente"}
@@ -464,20 +464,20 @@ function CohortPortal({ cohortId }) {
                           className="w-7 h-7 rounded-lg flex items-center justify-center"
                           style={{ background: "#ebff6f20" }}
                         >
-                          <CalendarDays size={13} style={{ color: "#258053" }} />
+                          <CalendarDays size={13} style={{ color: "#ebff6f" }} />
                         </div>
                         <div>
                           <p className="text-sm font-bold" style={{ color: "#fafafa" }}>
                             {resultEvents.length > 1 ? `Día ${idx + 1} — ` : ""}{ev.event_name}
                           </p>
                           {ev.created_at && (
-                            <p className="text-[10px]" style={{ color: "#737373" }}>
+                            <p className="text-[10px]" style={{ color: "#fafafa" }}>
                               {formatEventDate(ev.created_at)}
                             </p>
                           )}
                         </div>
                       </div>
-                      <span className="text-xs font-bold" style={{ color: "#258053" }}>
+                      <span className="text-xs font-bold" style={{ color: "#ebff6f" }}>
                         {ev.count} foto{ev.count !== 1 ? "s" : ""}
                       </span>
                     </div>
@@ -508,9 +508,9 @@ function CohortPortal({ cohortId }) {
               </>
             ) : (
               <div className="text-center py-10 rounded-2xl" style={{ border: "2px dashed #2d2d2d" }}>
-                <ImageOff size={32} className="mx-auto mb-3" style={{ color: "#525252" }} />
-                <p className="text-sm mb-1" style={{ color: "#a3a3a3" }}>No encontramos tu cara en este cohort.</p>
-                <p className="text-xs" style={{ color: "#737373" }}>
+                <ImageOff size={32} className="mx-auto mb-3" style={{ color: "#ebff6f" }} />
+                <p className="text-sm mb-1" style={{ color: "#fafafa" }}>No encontramos tu cara en este cohort.</p>
+                <p className="text-xs" style={{ color: "#fafafa" }}>
                   {usedWideSearch
                     ? "Prueba con una foto más clara, de frente y con buena iluminación."
                     : "Puede que la foto no sea suficientemente clara."}
@@ -521,7 +521,7 @@ function CohortPortal({ cohortId }) {
                     <button
                       onClick={() => handleMatch(true)}
                       className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors"
-                      style={{ background: "#ebff6f20", border: "1px solid #ebff6f60", color: "#258053" }}
+                      style={{ background: "#ebff6f20", border: "1px solid #ebff6f60", color: "#ebff6f" }}
                     >
                       Buscar con menor precisión
                     </button>
@@ -529,7 +529,7 @@ function CohortPortal({ cohortId }) {
                   <button
                     onClick={() => { setStep("upload"); resetSelfie(); setResultEvents([]); setTotalMatches(0); setUsedWideSearch(false); }}
                     className="px-5 py-2.5 rounded-xl text-sm transition-colors"
-                    style={{ border: "1px solid #2d2d2d", color: "#a3a3a3", background: "#0a0a0a" }}
+                    style={{ border: "1px solid #2d2d2d", color: "#fafafa", background: "#0a0a0a" }}
                   >
                     Intentar con otra foto
                   </button>
