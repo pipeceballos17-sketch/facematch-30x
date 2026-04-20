@@ -10,7 +10,7 @@ import Portal from "./components/Portal";
 import { getParticipants, deleteParticipant } from "./api";
 import "./index.css";
 
-const LOGO_URL = "https://res.cloudinary.com/do4mzgggm/image/upload/v1772313637/Negro_1_w5zt0g.png";
+const LOGO_URL = "https://res.cloudinary.com/do4mzgggm/image/upload/v1772313638/image_74_zxymrr.png";
 
 function getPortalCohortId() {
   const hash = window.location.hash;

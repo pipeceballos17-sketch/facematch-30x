@@ -4,25 +4,25 @@ export default {
   theme: {
     extend: {
       colors: {
-        // 30X brand palette — editorial, warm-corporate
+        // 30X brand palette — dark editorial mode
         lime: {
-          DEFAULT: "#ebff6f",   // soft pastel lime — primary accent
+          DEFAULT: "#ebff6f",   // pastel lime — primary accent (pops on dark)
           dim:     "#babe60",   // olive-lime hover
-          muted:   "#ebff6f25", // transparent tint
-          border:  "#ebff6f50", // subtle border
+          muted:   "#ebff6f18", // transparent tint
+          border:  "#ebff6f40", // subtle border
         },
         x: {
-          bg:      "#f7f5f2",   // warm cream — page background
-          surface: "#fafafa",   // off-white cards
-          surface2:"#efebe2",   // warm elevated surface
-          border:  "#e3dfd7",   // warm subtle border
-          border2: "#cfc6b3",   // warm stronger border
-          text:    "#1c1c1c",   // primary text (soft black)
-          muted:   "#525252",   // secondary text
-          faint:   "#868073",   // warm-muted tertiary
+          bg:      "#0a0a0a",   // near-black page background
+          surface: "#1c1c1c",   // card background
+          surface2:"#272b2d",   // elevated surface / inputs
+          border:  "#2d2d2d",   // default border
+          border2: "#404040",   // stronger border
+          text:    "#fafafa",   // primary text
+          muted:   "#a3a3a3",   // secondary text
+          faint:   "#737373",   // very muted / placeholder
           ink:     "#1c1c1c",   // dark ink (text on lime buttons)
         },
-        // Editorial accents — used sparingly for tags/badges
+        // Editorial accents
         wine:    "#942143",
         navy:    "#172452",
         forest:  "#258053",

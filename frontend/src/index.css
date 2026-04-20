@@ -11,8 +11,8 @@
 body {
   margin: 0;
   font-family: "Inter", system-ui, -apple-system, sans-serif;
-  background: #f7f5f2;
-  color: #1c1c1c;
+  background: #0a0a0a;
+  color: #fafafa;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -22,6 +22,6 @@ body {
 }
 
 ::-webkit-scrollbar       { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #efebe2; }
-::-webkit-scrollbar-thumb { background: #cfc6b3; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #868073; }
+::-webkit-scrollbar-track { background: #1c1c1c; }
+::-webkit-scrollbar-thumb { background: #404040; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #525252; }
