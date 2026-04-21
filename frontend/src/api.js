@@ -118,6 +118,11 @@ export const matchSelfieInCohort = (cohortId, file, threshold = null) => {
 export const getEventPhotoUrl = (eventId, filename) =>
   `${api.defaults.baseURL}/api/events/${eventId}/photo/${encodeURIComponent(filename)}`;
 
+export const downloadCohortSelection = (cohortId, selections) =>
+  api.post(`/api/cohorts/${cohortId}/download-selection`, { selections }, {
+    responseType: "blob",
+  }).then(r => r.data);
+
 export const addEventPhotos = (eventId, files) => {
   const fd = new FormData();
   files.forEach(f => fd.append("files", f));

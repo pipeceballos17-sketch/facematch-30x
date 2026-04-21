@@ -7,7 +7,29 @@ import {
 import {
   listPortalCohorts, getCohortPortalInfo,
   matchSelfieInCohort, getEventPhotoUrl,
+  downloadCohortSelection,
 } from "../api";
+
+// Force-download a blob as a file. Works on iOS Safari and Android Chrome
+// because blob: URLs are same-origin so the `download` attribute is honored.
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+async function downloadImageAsFile(url, filename) {
+  const res = await fetch(url, { credentials: "omit" });
+  if (!res.ok) throw new Error("fetch failed");
+  const blob = await res.blob();
+  saveBlob(blob, filename);
+}
 
 const LOGO = "https://res.cloudinary.com/do4mzgggm/image/upload/v1772313638/image_74_zxymrr.png";
 
@@ -191,6 +213,8 @@ function CohortPortal({ cohortId }) {
   const [resultEvents, setResultEvents] = useState([]);
   const [totalMatches, setTotalMatches] = useState(0);
   const [usedWideSearch, setUsedWideSearch] = useState(false);
+  const [downloadingAll, setDownloadingAll] = useState(false);
+  const [downloadingOne, setDownloadingOne] = useState(null);
 
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
@@ -235,21 +259,37 @@ function CohortPortal({ cohortId }) {
     }
   };
 
-  const handleDownloadAll = () => {
-    let i = 0;
-    resultEvents.forEach(ev => {
-      ev.matched_photos.forEach(filename => {
-        setTimeout(() => {
-          const a = document.createElement("a");
-          a.href = getEventPhotoUrl(ev.event_id, filename);
-          a.download = filename;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-        }, i * 400);
-        i++;
-      });
-    });
+  const handleDownloadAll = async () => {
+    if (downloadingAll) return;
+    const selections = resultEvents.flatMap(ev =>
+      ev.matched_photos.map(filename => ({ event_id: ev.event_id, filename }))
+    );
+    if (selections.length === 0) return;
+
+    setDownloadingAll(true);
+    try {
+      const blob = await downloadCohortSelection(cohortId, selections);
+      const safeName = (cohortInfo?.cohort_name || "fotos").replace(/\s+/g, "_");
+      saveBlob(blob, `${safeName}_30X.zip`);
+    } catch {
+      setMatchError("No pudimos preparar el ZIP. Intenta de nuevo.");
+    } finally {
+      setDownloadingAll(false);
+    }
+  };
+
+  const handleDownloadOne = async (eventId, filename) => {
+    const key = `${eventId}/${filename}`;
+    if (downloadingOne) return;
+    setDownloadingOne(key);
+    try {
+      await downloadImageAsFile(getEventPhotoUrl(eventId, filename), filename);
+    } catch {
+      // Fallback: open in new tab so the user can long-press → save
+      window.open(getEventPhotoUrl(eventId, filename), "_blank", "noopener");
+    } finally {
+      setDownloadingOne(null);
+    }
   };
 
   const goBackToLanding = () => { window.location.hash = "#portal"; };
@@ -482,28 +522,48 @@ function CohortPortal({ cohortId }) {
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                      {ev.matched_photos.map(filename => (
-                        <a key={filename} href={getEventPhotoUrl(ev.event_id, filename)} target="_blank" rel="noreferrer">
-                          <img
-                            src={getEventPhotoUrl(ev.event_id, filename)}
-                            alt={filename}
-                            className="w-full aspect-square object-cover rounded-xl transition-all hover:opacity-90"
+                      {ev.matched_photos.map(filename => {
+                        const key = `${ev.event_id}/${filename}`;
+                        const busy = downloadingOne === key;
+                        return (
+                          <button
+                            key={filename}
+                            type="button"
+                            onClick={() => handleDownloadOne(ev.event_id, filename)}
+                            className="relative block rounded-xl overflow-hidden transition-all active:scale-[0.98]"
                             style={{ border: "1px solid #2d2d2d" }}
-                            loading="lazy"
-                          />
-                        </a>
-                      ))}
+                          >
+                            <img
+                              src={getEventPhotoUrl(ev.event_id, filename)}
+                              alt={filename}
+                              className="w-full aspect-square object-cover"
+                              loading="lazy"
+                            />
+                            <div
+                              className="absolute bottom-1.5 right-1.5 rounded-full p-1.5"
+                              style={{ background: "rgba(10,10,10,0.75)", color: "#ebff6f" }}
+                            >
+                              {busy
+                                ? <Loader size={12} className="animate-spin" />
+                                : <Download size={12} />}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
                 <button
                   onClick={handleDownloadAll}
-                  className="w-full flex items-center justify-center gap-2 font-bold py-3 rounded-xl transition-colors"
+                  disabled={downloadingAll}
+                  className="w-full flex items-center justify-center gap-2 font-bold py-3 rounded-xl transition-colors disabled:opacity-60"
                   style={{ background: "#ebff6f", color: "#1c1c1c" }}
-                  onMouseEnter={e => { e.currentTarget.style.background = "#babe60"; }}
+                  onMouseEnter={e => { if (!downloadingAll) e.currentTarget.style.background = "#babe60"; }}
                   onMouseLeave={e => { e.currentTarget.style.background = "#ebff6f"; }}
                 >
-                  <Download size={16} /> Descargar todas mis fotos
+                  {downloadingAll
+                    ? <><Loader size={16} className="animate-spin" /> Preparando ZIP…</>
+                    : <><Download size={16} /> Descargar todas mis fotos</>}
                 </button>
               </>
             ) : (

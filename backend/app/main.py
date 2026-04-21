@@ -57,6 +57,7 @@ _PUBLIC_RE = re.compile(
     r"|/api/portal/"
     r"|/api/cohorts/[^/]+/portal-info$"
     r"|/api/cohorts/[^/]+/match-selfie$"
+    r"|/api/cohorts/[^/]+/download-selection$"
     r"|/api/events/[^/]+/match-selfie$"
     r"|/api/events/[^/]+/add-photos$"
     r"|/api/events/[^/]+/info$"
@@ -936,6 +937,37 @@ async def match_selfie_in_cohort(
     # Sort events chronologically so results read Day 1 → Day 2 → Day 3
     events.sort(key=lambda e: e["created_at"] or "")
     return {"events": events, "total_matches": total}
+
+
+@app.post("/api/cohorts/{cohort_id}/download-selection")
+async def download_cohort_selection(cohort_id: str, payload: dict):
+    """Public: stream a ZIP of selected photos across a cohort's events."""
+    import zipfile
+    from io import BytesIO
+    c = co.get_cohort(cohort_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Cohort no encontrado")
+    selections = payload.get("selections") or []
+    allowed_events = set(c.get("event_ids", []))
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for sel in selections:
+            eid = sel.get("event_id")
+            fname = Path(sel.get("filename", "")).name
+            if not eid or not fname or eid not in allowed_events:
+                continue
+            src = fe.EVENTS_DIR / eid / fname
+            if not src.exists():
+                continue
+            arc = f"{eid[:8]}/{fname}" if len(selections) > 1 else fname
+            zf.write(src, arc)
+    buf.seek(0)
+    safe_name = (c.get("name") or "fotos").replace(" ", "_")
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}_30X.zip"'},
+    )
 
 
 @app.get("/api/events/{event_id}/photo/{filename}")
