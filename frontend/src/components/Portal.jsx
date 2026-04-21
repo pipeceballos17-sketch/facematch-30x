@@ -214,7 +214,6 @@ function CohortPortal({ cohortId }) {
   const [totalMatches, setTotalMatches] = useState(0);
   const [usedWideSearch, setUsedWideSearch] = useState(false);
   const [downloadingAll, setDownloadingAll] = useState(false);
-  const [downloadingOne, setDownloadingOne] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
 
   const toggleSelect = (eventId, filename) => {
@@ -282,27 +281,19 @@ function CohortPortal({ cohortId }) {
 
     setDownloadingAll(true);
     try {
-      const blob = await downloadCohortSelection(cohortId, selections);
-      const safeName = (cohortInfo?.cohort_name || "fotos").replace(/\s+/g, "_");
-      saveBlob(blob, `${safeName}_30X.zip`);
+      // Single file → download the raw image (friendlier than a 1-file ZIP)
+      if (selections.length === 1) {
+        const { event_id, filename } = selections[0];
+        await downloadImageAsFile(getEventPhotoUrl(event_id, filename), filename);
+      } else {
+        const blob = await downloadCohortSelection(cohortId, selections);
+        const safeName = (cohortInfo?.cohort_name || "fotos").replace(/\s+/g, "_");
+        saveBlob(blob, `${safeName}_30X.zip`);
+      }
     } catch {
-      setMatchError("No pudimos preparar el ZIP. Intenta de nuevo.");
+      setMatchError("No pudimos preparar la descarga. Intenta de nuevo.");
     } finally {
       setDownloadingAll(false);
-    }
-  };
-
-  const handleDownloadOne = async (eventId, filename) => {
-    const key = `${eventId}/${filename}`;
-    if (downloadingOne) return;
-    setDownloadingOne(key);
-    try {
-      await downloadImageAsFile(getEventPhotoUrl(eventId, filename), filename);
-    } catch {
-      // Fallback: open in new tab so the user can long-press → save
-      window.open(getEventPhotoUrl(eventId, filename), "_blank", "noopener");
-    } finally {
-      setDownloadingOne(null);
     }
   };
 
@@ -502,7 +493,7 @@ function CohortPortal({ cohortId }) {
                 </h2>
                 <p className="text-xs mt-0.5" style={{ color: "#fafafa" }}>
                   {totalMatches > 0
-                    ? "Toca para seleccionar · ícono ↓ descarga individual"
+                    ? "Toca para seleccionar · descarga abajo"
                     : "Intenta con una foto más clara y de frente"}
                 </p>
               </div>
@@ -538,42 +529,35 @@ function CohortPortal({ cohortId }) {
                     <div className="grid grid-cols-2 gap-3">
                       {ev.matched_photos.map(filename => {
                         const key = `${ev.event_id}/${filename}`;
-                        const busy = downloadingOne === key;
                         const isSelected = selected.has(key);
                         return (
                           <div
                             key={filename}
-                            className="relative rounded-xl overflow-hidden transition-all"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => toggleSelect(ev.event_id, filename)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                toggleSelect(ev.event_id, filename);
+                              }
+                            }}
+                            aria-label={isSelected ? "Quitar de selección" : "Seleccionar foto"}
+                            aria-pressed={isSelected}
+                            className="relative rounded-xl overflow-hidden transition-all active:scale-[0.98] cursor-pointer"
                             style={{
                               border: isSelected ? "3px solid #ebff6f" : "1px solid #2d2d2d",
                             }}
                           >
-                            {/* Whole card = toggle selection (easy tap target) */}
-                            <div
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => toggleSelect(ev.event_id, filename)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                  e.preventDefault();
-                                  toggleSelect(ev.event_id, filename);
-                                }
-                              }}
-                              aria-label={isSelected ? "Quitar de selección" : "Seleccionar foto"}
-                              aria-pressed={isSelected}
-                              className="block w-full active:scale-[0.98] transition-transform cursor-pointer"
-                            >
-                              <img
-                                src={getEventPhotoUrl(ev.event_id, filename)}
-                                alt={filename}
-                                className="w-full aspect-square object-cover"
-                                loading="lazy"
-                                draggable={false}
-                                style={{ opacity: isSelected ? 0.88 : 1 }}
-                              />
-                            </div>
+                            <img
+                              src={getEventPhotoUrl(ev.event_id, filename)}
+                              alt={filename}
+                              className="w-full aspect-square object-cover"
+                              loading="lazy"
+                              draggable={false}
+                              style={{ opacity: isSelected ? 0.88 : 1 }}
+                            />
 
-                            {/* Selected checkmark (top-left) — decorative, no click handler */}
                             <div
                               className="absolute top-1.5 left-1.5 rounded-full flex items-center justify-center pointer-events-none transition-all"
                               style={{
@@ -585,24 +569,6 @@ function CohortPortal({ cohortId }) {
                             >
                               {isSelected && <Check size={16} strokeWidth={3} />}
                             </div>
-
-                            {/* Single-photo download button (bottom-right) — stops propagation */}
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); handleDownloadOne(ev.event_id, filename); }}
-                              aria-label="Descargar esta foto"
-                              className="absolute bottom-1.5 right-1.5 rounded-full flex items-center justify-center active:scale-90 transition-transform"
-                              style={{
-                                width: 34, height: 34,
-                                background: "rgba(10,10,10,0.75)",
-                                color: "#ebff6f",
-                                border: "1px solid rgba(235,255,111,0.35)",
-                              }}
-                            >
-                              {busy
-                                ? <Loader size={14} className="animate-spin" />
-                                : <Download size={14} />}
-                            </button>
                           </div>
                         );
                       })}
