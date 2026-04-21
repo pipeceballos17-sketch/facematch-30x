@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   Camera, Loader, Download,
   X, ArrowLeft, ImageOff, CalendarDays, ChevronRight, Images,
-  Search, Sparkles, FolderOpen, Image as ImageIcon,
+  Search, Sparkles, FolderOpen, Image as ImageIcon, Check,
 } from "lucide-react";
 import {
   listPortalCohorts, getCohortPortalInfo,
@@ -215,6 +215,17 @@ function CohortPortal({ cohortId }) {
   const [usedWideSearch, setUsedWideSearch] = useState(false);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [downloadingOne, setDownloadingOne] = useState(null);
+  const [selected, setSelected] = useState(() => new Set());
+
+  const toggleSelect = (eventId, filename) => {
+    const key = `${eventId}/${filename}`;
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+  const clearSelection = () => setSelected(new Set());
 
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
@@ -261,9 +272,12 @@ function CohortPortal({ cohortId }) {
 
   const handleDownloadAll = async () => {
     if (downloadingAll) return;
-    const selections = resultEvents.flatMap(ev =>
+    const allSelections = resultEvents.flatMap(ev =>
       ev.matched_photos.map(filename => ({ event_id: ev.event_id, filename }))
     );
+    const selections = selected.size > 0
+      ? allSelections.filter(s => selected.has(`${s.event_id}/${s.filename}`))
+      : allSelections;
     if (selections.length === 0) return;
 
     setDownloadingAll(true);
@@ -474,7 +488,7 @@ function CohortPortal({ cohortId }) {
               }}
             >
               <button
-                onClick={() => { setStep("upload"); setResultEvents([]); setTotalMatches(0); }}
+                onClick={() => { setStep("upload"); setResultEvents([]); setTotalMatches(0); clearSelection(); }}
                 className="p-1.5 rounded-lg shrink-0"
                 style={{ border: "1px solid #2d2d2d", color: "#ebff6f", background: "#0a0a0a" }}
               >
@@ -525,29 +539,54 @@ function CohortPortal({ cohortId }) {
                       {ev.matched_photos.map(filename => {
                         const key = `${ev.event_id}/${filename}`;
                         const busy = downloadingOne === key;
+                        const isSelected = selected.has(key);
                         return (
-                          <button
+                          <div
                             key={filename}
-                            type="button"
-                            onClick={() => handleDownloadOne(ev.event_id, filename)}
-                            className="relative block rounded-xl overflow-hidden transition-all active:scale-[0.98]"
-                            style={{ border: "1px solid #2d2d2d" }}
+                            className="relative rounded-xl overflow-hidden transition-all"
+                            style={{
+                              border: isSelected ? "2px solid #ebff6f" : "1px solid #2d2d2d",
+                            }}
                           >
-                            <img
-                              src={getEventPhotoUrl(ev.event_id, filename)}
-                              alt={filename}
-                              className="w-full aspect-square object-cover"
-                              loading="lazy"
-                            />
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadOne(ev.event_id, filename)}
+                              className="block w-full active:scale-[0.98] transition-transform"
+                            >
+                              <img
+                                src={getEventPhotoUrl(ev.event_id, filename)}
+                                alt={filename}
+                                className="w-full aspect-square object-cover"
+                                loading="lazy"
+                              />
+                            </button>
+
+                            {/* Select checkbox (top-left) */}
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); toggleSelect(ev.event_id, filename); }}
+                              aria-label={isSelected ? "Quitar de selección" : "Seleccionar foto"}
+                              className="absolute top-1.5 left-1.5 rounded-full flex items-center justify-center transition-all"
+                              style={{
+                                width: 26, height: 26,
+                                background: isSelected ? "#ebff6f" : "rgba(10,10,10,0.65)",
+                                border: isSelected ? "2px solid #ebff6f" : "1.5px solid rgba(250,250,250,0.55)",
+                                color: isSelected ? "#1c1c1c" : "#fafafa",
+                              }}
+                            >
+                              {isSelected && <Check size={14} strokeWidth={3} />}
+                            </button>
+
+                            {/* Download indicator (bottom-right) */}
                             <div
-                              className="absolute bottom-1.5 right-1.5 rounded-full p-1.5"
+                              className="absolute bottom-1.5 right-1.5 rounded-full p-1.5 pointer-events-none"
                               style={{ background: "rgba(10,10,10,0.75)", color: "#ebff6f" }}
                             >
                               {busy
                                 ? <Loader size={12} className="animate-spin" />
                                 : <Download size={12} />}
                             </div>
-                          </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -563,8 +602,19 @@ function CohortPortal({ cohortId }) {
                 >
                   {downloadingAll
                     ? <><Loader size={16} className="animate-spin" /> Preparando ZIP…</>
-                    : <><Download size={16} /> Descargar todas mis fotos</>}
+                    : selected.size > 0
+                      ? <><Download size={16} /> Descargar {selected.size} seleccionada{selected.size !== 1 ? "s" : ""}</>
+                      : <><Download size={16} /> Descargar todas mis fotos</>}
                 </button>
+                {selected.size > 0 && !downloadingAll && (
+                  <button
+                    onClick={clearSelection}
+                    className="w-full mt-2 text-xs underline underline-offset-2"
+                    style={{ color: "#a3a3a3" }}
+                  >
+                    Limpiar selección
+                  </button>
+                )}
               </>
             ) : (
               <div className="text-center py-10 rounded-2xl" style={{ border: "2px dashed #2d2d2d" }}>
