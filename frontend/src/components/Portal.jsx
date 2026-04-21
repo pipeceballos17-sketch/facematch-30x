@@ -549,21 +549,29 @@ function CohortPortal({ cohortId }) {
                             }}
                           >
                             {/* Whole card = toggle selection (easy tap target) */}
-                            <button
-                              type="button"
+                            <div
+                              role="button"
+                              tabIndex={0}
                               onClick={() => toggleSelect(ev.event_id, filename)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  toggleSelect(ev.event_id, filename);
+                                }
+                              }}
                               aria-label={isSelected ? "Quitar de selección" : "Seleccionar foto"}
                               aria-pressed={isSelected}
-                              className="block w-full active:scale-[0.98] transition-transform"
+                              className="block w-full active:scale-[0.98] transition-transform cursor-pointer"
                             >
                               <img
                                 src={getEventPhotoUrl(ev.event_id, filename)}
                                 alt={filename}
                                 className="w-full aspect-square object-cover"
                                 loading="lazy"
+                                draggable={false}
                                 style={{ opacity: isSelected ? 0.88 : 1 }}
                               />
-                            </button>
+                            </div>
 
                             {/* Selected checkmark (top-left) — decorative, no click handler */}
                             <div
