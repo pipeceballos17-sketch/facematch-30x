@@ -502,7 +502,7 @@ function CohortPortal({ cohortId }) {
                 </h2>
                 <p className="text-xs mt-0.5" style={{ color: "#fafafa" }}>
                   {totalMatches > 0
-                    ? "Toca para ver en grande · descarga todas abajo"
+                    ? "Toca para seleccionar · ícono ↓ descarga individual"
                     : "Intenta con una foto más clara y de frente"}
                 </p>
               </div>
@@ -545,12 +545,15 @@ function CohortPortal({ cohortId }) {
                             key={filename}
                             className="relative rounded-xl overflow-hidden transition-all"
                             style={{
-                              border: isSelected ? "2px solid #ebff6f" : "1px solid #2d2d2d",
+                              border: isSelected ? "3px solid #ebff6f" : "1px solid #2d2d2d",
                             }}
                           >
+                            {/* Whole card = toggle selection (easy tap target) */}
                             <button
                               type="button"
-                              onClick={() => handleDownloadOne(ev.event_id, filename)}
+                              onClick={() => toggleSelect(ev.event_id, filename)}
+                              aria-label={isSelected ? "Quitar de selección" : "Seleccionar foto"}
+                              aria-pressed={isSelected}
                               className="block w-full active:scale-[0.98] transition-transform"
                             >
                               <img
@@ -558,34 +561,40 @@ function CohortPortal({ cohortId }) {
                                 alt={filename}
                                 className="w-full aspect-square object-cover"
                                 loading="lazy"
+                                style={{ opacity: isSelected ? 0.88 : 1 }}
                               />
                             </button>
 
-                            {/* Select checkbox (top-left) */}
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); toggleSelect(ev.event_id, filename); }}
-                              aria-label={isSelected ? "Quitar de selección" : "Seleccionar foto"}
-                              className="absolute top-1.5 left-1.5 rounded-full flex items-center justify-center transition-all"
+                            {/* Selected checkmark (top-left) — decorative, no click handler */}
+                            <div
+                              className="absolute top-1.5 left-1.5 rounded-full flex items-center justify-center pointer-events-none transition-all"
                               style={{
-                                width: 26, height: 26,
-                                background: isSelected ? "#ebff6f" : "rgba(10,10,10,0.65)",
-                                border: isSelected ? "2px solid #ebff6f" : "1.5px solid rgba(250,250,250,0.55)",
-                                color: isSelected ? "#1c1c1c" : "#fafafa",
+                                width: 30, height: 30,
+                                background: isSelected ? "#ebff6f" : "rgba(10,10,10,0.55)",
+                                border: isSelected ? "2px solid #ebff6f" : "1.5px solid rgba(250,250,250,0.45)",
+                                color: isSelected ? "#1c1c1c" : "transparent",
                               }}
                             >
-                              {isSelected && <Check size={14} strokeWidth={3} />}
-                            </button>
+                              {isSelected && <Check size={16} strokeWidth={3} />}
+                            </div>
 
-                            {/* Download indicator (bottom-right) */}
-                            <div
-                              className="absolute bottom-1.5 right-1.5 rounded-full p-1.5 pointer-events-none"
-                              style={{ background: "rgba(10,10,10,0.75)", color: "#ebff6f" }}
+                            {/* Single-photo download button (bottom-right) — stops propagation */}
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleDownloadOne(ev.event_id, filename); }}
+                              aria-label="Descargar esta foto"
+                              className="absolute bottom-1.5 right-1.5 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+                              style={{
+                                width: 34, height: 34,
+                                background: "rgba(10,10,10,0.75)",
+                                color: "#ebff6f",
+                                border: "1px solid rgba(235,255,111,0.35)",
+                              }}
                             >
                               {busy
-                                ? <Loader size={12} className="animate-spin" />
-                                : <Download size={12} />}
-                            </div>
+                                ? <Loader size={14} className="animate-spin" />
+                                : <Download size={14} />}
+                            </button>
                           </div>
                         );
                       })}
