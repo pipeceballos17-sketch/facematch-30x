@@ -971,12 +971,19 @@ async def download_cohort_selection(cohort_id: str, payload: dict):
 
 
 @app.get("/api/events/{event_id}/photo/{filename}")
-async def get_event_photo(event_id: str, filename: str):
-    """Public endpoint: serve an individual event photo by filename."""
+async def get_event_photo(event_id: str, filename: str, download: Optional[int] = 0):
+    """Public endpoint: serve an individual event photo by filename.
+    Pass ?download=1 to force an attachment download (works cross-origin)."""
     safe_filename = Path(filename).name  # prevent path traversal
     photo_path = fe.EVENTS_DIR / event_id / safe_filename
     if not photo_path.exists():
         raise HTTPException(status_code=404, detail="Foto no encontrada")
+    if download:
+        return FileResponse(
+            str(photo_path),
+            filename=safe_filename,
+            headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
+        )
     return FileResponse(str(photo_path))
 
 

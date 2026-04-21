@@ -24,11 +24,19 @@ function saveBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
-async function downloadImageAsFile(url, filename) {
-  const res = await fetch(url, { credentials: "omit" });
-  if (!res.ok) throw new Error("fetch failed");
-  const blob = await res.blob();
-  saveBlob(blob, filename);
+// Trigger a cross-origin file download via a direct link.
+// The backend must send `Content-Disposition: attachment` for this to work
+// on iOS Safari / Android Chrome — the `download` attribute alone is
+// ignored for cross-origin responses without the attachment header.
+function downloadViaLink(url, filename) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename || "";
+  a.rel = "noopener";
+  a.target = "_self";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 const LOGO = "https://res.cloudinary.com/do4mzgggm/image/upload/v1772313638/image_74_zxymrr.png";
@@ -284,7 +292,8 @@ function CohortPortal({ cohortId }) {
       // Single file → download the raw image (friendlier than a 1-file ZIP)
       if (selections.length === 1) {
         const { event_id, filename } = selections[0];
-        await downloadImageAsFile(getEventPhotoUrl(event_id, filename), filename);
+        const url = `${getEventPhotoUrl(event_id, filename)}?download=1`;
+        downloadViaLink(url, filename);
       } else {
         const blob = await downloadCohortSelection(cohortId, selections);
         const safeName = (cohortInfo?.cohort_name || "fotos").replace(/\s+/g, "_");
