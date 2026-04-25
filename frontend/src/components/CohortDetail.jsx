@@ -3,7 +3,6 @@ import {
   ArrowLeft, Upload, CheckCircle, Loader,
   Image as ImageIcon, Trash2, Share2, Copy, X,
 } from "lucide-react";
-import JSZip from "jszip";
 import {
   listCohortPhotos,
   uploadCohortPhotos,
@@ -20,22 +19,41 @@ function isImageName(name) {
   return SUPPORTED_EXT.some(ext => lower.endsWith(ext));
 }
 
-async function extractZipToFiles(zipFile, onProgress) {
-  const zip = await JSZip.loadAsync(zipFile);
-  const names = Object.keys(zip.files).filter(n => {
-    if (zip.files[n].dir) return false;
-    if (n.includes("__MACOSX") || n.split("/").pop().startsWith(".")) return false;
-    return isImageName(n);
-  });
-  const files = [];
-  for (let i = 0; i < names.length; i++) {
-    const name = names[i];
-    const blob = await zip.files[name].async("blob");
-    const leaf = name.split("/").pop();
-    files.push(new File([blob], leaf, { type: blob.type || "image/jpeg" }));
-    if (onProgress) onProgress(i + 1, names.length);
+// Walks a dropped folder/file entry tree and yields every file inside.
+// Lets the photographer drag the entire folder onto the dropzone, no ZIP needed.
+async function readEntries(reader) {
+  return new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+}
+async function entryToFiles(entry, out) {
+  if (entry.isFile) {
+    if (!isImageName(entry.name)) return;
+    if (entry.name.startsWith(".")) return; // skip hidden
+    const file = await new Promise((res, rej) => entry.file(res, rej));
+    out.push(file);
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    let batch;
+    do {
+      batch = await readEntries(reader);
+      for (const child of batch) await entryToFiles(child, out);
+    } while (batch.length);
   }
-  return files;
+}
+async function collectFromDataTransfer(dt) {
+  const items = Array.from(dt.items || []);
+  const out = [];
+  // Prefer the entry API (handles folders); fall back to plain files.
+  const entries = items
+    .map(it => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null))
+    .filter(Boolean);
+  if (entries.length) {
+    for (const e of entries) await entryToFiles(e, out);
+  } else {
+    for (const f of Array.from(dt.files || [])) {
+      if (isImageName(f.name)) out.push(f);
+    }
+  }
+  return out;
 }
 
 function ShareModal({ onClose, cohort }) {
@@ -100,9 +118,10 @@ export default function CohortDetail({ cohort, onBack }) {
   const [queueDone, setQueueDone]       = useState(0);
   const [queueFailed, setQueueFailed]   = useState(0);
   const [queueIndexed, setQueueIndexed] = useState(0);
-  const [queueStage, setQueueStage]     = useState(""); // "extracting" | "uploading" | ""
+  const [queueStage, setQueueStage]     = useState(""); // "scanning" | "uploading" | ""
   const uploading = queueStage !== "";
   const fileInputRef = useRef(null);
+  const folderInputRef = useRef(null);
 
   const load = () => {
     setLoading(true);
@@ -122,31 +141,8 @@ export default function CohortDetail({ cohort, onBack }) {
     finally { setDel(null); }
   };
 
-  const processUpload = async (rawFiles) => {
-    if (uploading) return;
-    // 1. Expand ZIPs into their contents.
-    let files = [];
-    let extractedFromZip = 0;
-    setQueueStage("extracting");
-    for (const f of rawFiles) {
-      if (f.name.toLowerCase().endsWith(".zip")) {
-        try {
-          const inside = await extractZipToFiles(f);
-          files.push(...inside);
-          extractedFromZip += inside.length;
-        } catch (e) {
-          console.error("ZIP extraction failed", f.name, e);
-        }
-      } else if (isImageName(f.name)) {
-        files.push(f);
-      }
-    }
-    if (files.length === 0) {
-      setQueueStage("");
-      return;
-    }
-
-    // 2. Upload in parallel batches.
+  const runUpload = async (files) => {
+    if (!files.length) { setQueueStage(""); return; }
     setQueueTotal(files.length);
     setQueueDone(0);
     setQueueFailed(0);
@@ -175,22 +171,28 @@ export default function CohortDetail({ cohort, onBack }) {
     await Promise.all(workers);
 
     setQueueStage("");
-    // Refresh pool once all batches finish.
     load();
-    if (extractedFromZip) console.log(`Extracted ${extractedFromZip} photos from ZIP(s)`);
   };
 
   const handlePicker = (e) => {
-    const files = Array.from(e.target.files || []);
+    const files = Array.from(e.target.files || []).filter(f => isImageName(f.name));
     e.target.value = "";
-    if (files.length) processUpload(files);
+    if (uploading) return;
+    runUpload(files);
   };
 
-  const handleDrop = (e) => {
+  const handleDrop = async (e) => {
     e.preventDefault();
     setDragOver(false);
-    const files = Array.from(e.dataTransfer.files || []);
-    if (files.length) processUpload(files);
+    if (uploading) return;
+    setQueueStage("scanning");
+    try {
+      const files = await collectFromDataTransfer(e.dataTransfer);
+      await runUpload(files);
+    } finally {
+      // runUpload clears stage, but if no files we still need to clear it
+      setQueueStage(s => (s === "scanning" ? "" : s));
+    }
   };
 
   const progress = queueTotal
@@ -245,16 +247,25 @@ export default function CohortDetail({ cohort, onBack }) {
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
-        onClick={() => !uploading && fileInputRef.current?.click()}
-        className={`rounded-2xl border-2 border-dashed p-8 mb-6 text-center transition-all cursor-pointer ${
-          dragOver ? "border-lime bg-lime/5" : "border-x-border bg-x-surface hover:border-x-border2"
-        } ${uploading ? "cursor-wait opacity-80" : ""}`}
+        className={`rounded-2xl border-2 border-dashed p-8 mb-6 text-center transition-all ${
+          dragOver ? "border-lime bg-lime/5" : "border-x-border bg-x-surface"
+        } ${uploading ? "opacity-80" : ""}`}
       >
         <input
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/*,.zip"
+          accept="image/*"
+          onChange={handlePicker}
+          className="hidden"
+        />
+        <input
+          ref={folderInputRef}
+          type="file"
+          // eslint-disable-next-line react/no-unknown-property
+          webkitdirectory=""
+          directory=""
+          multiple
           onChange={handlePicker}
           className="hidden"
         />
@@ -262,16 +273,30 @@ export default function CohortDetail({ cohort, onBack }) {
           <>
             <Upload size={28} className="mx-auto mb-3 text-lime" />
             <p className="text-sm font-semibold text-x-text mb-1">
-              Arrastra fotos o un ZIP aquí
+              Arrastra una carpeta o fotos aquí
             </p>
-            <p className="text-xs text-x-faint">
+            <p className="text-xs text-x-faint mb-4">
               Se suman a la piscina del cohort. Puedes subir varias veces.
             </p>
+            <div className="flex gap-2 justify-center">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="text-xs font-bold border border-x-border text-x-muted hover:text-x-text hover:border-x-border2 rounded-lg px-4 py-2 transition-colors"
+              >
+                Elegir fotos
+              </button>
+              <button
+                onClick={() => folderInputRef.current?.click()}
+                className="text-xs font-bold bg-lime text-x-ink hover:bg-lime-dim rounded-lg px-4 py-2 transition-colors"
+              >
+                Elegir carpeta
+              </button>
+            </div>
           </>
-        ) : queueStage === "extracting" ? (
+        ) : queueStage === "scanning" ? (
           <>
             <Loader size={24} className="mx-auto mb-3 animate-spin text-lime" />
-            <p className="text-sm font-semibold text-x-text">Descomprimiendo ZIP…</p>
+            <p className="text-sm font-semibold text-x-text">Escaneando carpeta…</p>
           </>
         ) : (
           <>
