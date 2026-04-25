@@ -10,33 +10,42 @@ import {
   downloadCohortSelection,
 } from "../api";
 
-// Force-download a blob as a file. Works on iOS Safari and Android Chrome
-// because blob: URLs are same-origin so the `download` attribute is honored.
-function saveBlob(blob, filename) {
+// iOS-aware download/share. On iPhone <a download> is unreliable for
+// cross-origin URLs and even for blob URLs created after `await`. We try
+// (in order):
+//   1. Web Share API with the file — native iOS sheet ("Save to Files"/"Photos")
+//   2. <a download> — works on desktop + Android
+//   3. Open in new tab — last resort, iOS shows native download UI
+async function shareOrDownloadBlob(blob, filename) {
+  if (!blob) return;
+  const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
+  if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+    try { await navigator.share({ files: [file] }); return; }
+    catch (e) {
+      if (e?.name === "AbortError") return; // user cancelled — don't fall through
+      // any other error → fall through to <a download>
+    }
+  }
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.rel = "noopener";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
 }
 
-// Trigger a cross-origin file download via a direct link.
-// The backend must send `Content-Disposition: attachment` for this to work
-// on iOS Safari / Android Chrome — the `download` attribute alone is
-// ignored for cross-origin responses without the attachment header.
-function downloadViaLink(url, filename) {
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename || "";
-  a.rel = "noopener";
-  a.target = "_self";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+// For a known direct URL with Content-Disposition: attachment, iOS Safari
+// honors a new-tab open by showing its native download dialog without
+// actually navigating away.
+function openDownloadInNewTab(url) {
+  const w = window.open(url, "_blank", "noopener");
+  if (!w) window.location.href = url; // popup blocked → navigate
 }
 
 const LOGO = "https://res.cloudinary.com/do4mzgggm/image/upload/v1772313638/image_74_zxymrr.png";
@@ -279,13 +288,23 @@ function CohortPortal({ cohortId }) {
     setDownloadingAll(true);
     try {
       if (selections.length === 1) {
+        // Single photo → fetch as blob then share/download. The blob path
+        // works on iOS via Web Share API ("Save to Files / Photos").
         const filename = selections[0];
         const url = `${getCohortPhotoUrl(cohortId, filename)}?download=1`;
-        downloadViaLink(url, filename);
+        try {
+          const res = await fetch(url, { credentials: "omit" });
+          if (!res.ok) throw new Error("fetch failed");
+          const blob = await res.blob();
+          await shareOrDownloadBlob(blob, filename);
+        } catch {
+          // Network/CORS edge case — fall back to opening the URL directly.
+          openDownloadInNewTab(url);
+        }
       } else {
         const blob = await downloadCohortSelection(cohortId, selections);
         const safeName = (cohortInfo?.cohort_name || "fotos").replace(/\s+/g, "_");
-        saveBlob(blob, `${safeName}_30X.zip`);
+        await shareOrDownloadBlob(blob, `${safeName}_30X.zip`);
       }
     } catch {
       setMatchError("No pudimos preparar la descarga. Intenta de nuevo.");
