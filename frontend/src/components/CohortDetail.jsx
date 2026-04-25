@@ -11,8 +11,8 @@ import {
 } from "../api";
 
 const SUPPORTED_EXT = [".jpg", ".jpeg", ".png", ".webp", ".bmp"];
-const BATCH_SIZE = 8;            // photos per POST
-const MAX_PARALLEL = 3;          // concurrent POSTs
+const BATCH_SIZE = 4;            // photos per POST — smaller = smoother progress
+const MAX_PARALLEL = 5;          // concurrent POSTs
 
 function isImageName(name) {
   const lower = (name || "").toLowerCase();
