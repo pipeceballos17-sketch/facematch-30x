@@ -1055,3 +1055,64 @@ async def add_photos_to_event(
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "model": fe.MODEL_NAME, "auth_required": bool(ADMIN_PASSWORD)}
+
+
+@app.get("/api/admin/storage-stats")
+async def storage_stats():
+    """Diagnostic: per-directory size on the Volume + total disk usage."""
+    import shutil
+
+    def folder_bytes(p: Path) -> int:
+        if not p.exists():
+            return 0
+        total = 0
+        for root, _, files in os.walk(p):
+            for name in files:
+                try:
+                    total += (Path(root) / name).stat().st_size
+                except OSError:
+                    pass
+        return total
+
+    def fmt(n: int) -> str:
+        for unit in ("B", "KB", "MB", "GB", "TB"):
+            if n < 1024:
+                return f"{n:.1f} {unit}"
+            n /= 1024
+        return f"{n:.1f} PB"
+
+    base = STORAGE_BASE
+    folders = {
+        "events":       base / "events",
+        "results":      base / "results",
+        "participants": base / "participants",
+        "temp":         base / "temp",
+        "cohorts":      base / "cohorts",
+    }
+    breakdown = {}
+    for name, path in folders.items():
+        size = folder_bytes(path)
+        breakdown[name] = {
+            "bytes": size,
+            "human": fmt(size),
+            "exists": path.exists(),
+            "path": str(path),
+        }
+
+    # Disk usage of the mount that holds STORAGE_BASE
+    disk = shutil.disk_usage(str(base))
+    return {
+        "storage_base": str(base),
+        "disk": {
+            "total": fmt(disk.total),
+            "used":  fmt(disk.used),
+            "free":  fmt(disk.free),
+            "pct_used": round(disk.used / disk.total * 100, 1) if disk.total else 0,
+        },
+        "by_folder": breakdown,
+        "thumbnails_total": fmt(sum(
+            (Path(r) / f).stat().st_size
+            for r, _, files in os.walk(base / "events")
+            for f in files if f.endswith(".thumb.jpg")
+        )) if (base / "events").exists() else "0 B",
+    }
