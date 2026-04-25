@@ -39,18 +39,33 @@ async function entryToFiles(entry, out) {
     } while (batch.length);
   }
 }
-async function collectFromDataTransfer(dt) {
-  const items = Array.from(dt.items || []);
+// IMPORTANT: webkitGetAsEntry must be called synchronously inside the drop
+// handler — items list is cleared after the event returns. Snapshot first,
+// then walk the trees asynchronously.
+function snapshotDrop(e) {
+  const items = e.dataTransfer?.items;
+  const entries = [];
+  if (items) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind !== "file") continue;
+      const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+      if (entry) entries.push(entry);
+    }
+  }
+  const flatFiles = Array.from(e.dataTransfer?.files || []);
+  return { entries, flatFiles };
+}
+
+async function expandSnapshot({ entries, flatFiles }) {
   const out = [];
-  // Prefer the entry API (handles folders); fall back to plain files.
-  const entries = items
-    .map(it => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null))
-    .filter(Boolean);
   if (entries.length) {
     for (const e of entries) await entryToFiles(e, out);
-  } else {
-    for (const f of Array.from(dt.files || [])) {
-      if (isImageName(f.name)) out.push(f);
+  }
+  // Always merge flatFiles too — covers browsers without the entry API.
+  for (const f of flatFiles) {
+    if (isImageName(f.name) && !out.some(o => o.name === f.name && o.size === f.size)) {
+      out.push(f);
     }
   }
   return out;
@@ -185,12 +200,17 @@ export default function CohortDetail({ cohort, onBack }) {
     e.preventDefault();
     setDragOver(false);
     if (uploading) return;
+    // Snapshot SYNCHRONOUSLY — items list dies after this handler returns.
+    const snap = snapshotDrop(e);
     setQueueStage("scanning");
     try {
-      const files = await collectFromDataTransfer(e.dataTransfer);
+      const files = await expandSnapshot(snap);
+      if (!files.length) {
+        alert("No se encontraron imágenes en el drop. Asegúrate de arrastrar fotos (.jpg .png .webp) o una carpeta que las contenga.");
+        return;
+      }
       await runUpload(files);
     } finally {
-      // runUpload clears stage, but if no files we still need to clear it
       setQueueStage(s => (s === "scanning" ? "" : s));
     }
   };
