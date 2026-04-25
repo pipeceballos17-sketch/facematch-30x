@@ -214,10 +214,11 @@ function EventDetail({ event, onShare }) {
                 <div key={filename} className="relative group">
                   <a href={getEventPhotoUrl(event.event_id, filename)} target="_blank" rel="noreferrer">
                     <img
-                      src={getEventPhotoUrl(event.event_id, filename)}
+                      src={`${getEventPhotoUrl(event.event_id, filename)}?thumb=1`}
                       alt={filename}
                       className="w-full aspect-square object-cover rounded-lg group-hover:opacity-75 transition-opacity"
                       loading="lazy"
+                      decoding="async"
                     />
                   </a>
                   <button
