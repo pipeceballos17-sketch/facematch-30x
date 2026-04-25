@@ -229,6 +229,60 @@ async def upload_cohort_photos(
     }
 
 
+@app.post("/api/cohorts/{cohort_id}/reindex")
+async def reindex_cohort(cohort_id: str):
+    """Re-run Rekognition on every photo currently in the cohort pool.
+
+    Used when photos are on disk but didn't get indexed (e.g. previous
+    deploy hit the 5MB Rekognition limit). Wipes the existing collection
+    so we start clean, then indexes every original on disk."""
+    import asyncio
+    if not co.get_cohort(cohort_id):
+        raise HTTPException(status_code=404, detail="Cohort not found")
+
+    # Drop and recreate the collection so stale ExternalImageIds don't linger.
+    await run_in_threadpool(fe.delete_cohort_collection, cohort_id)
+    pdir = co.photos_dir(cohort_id)
+    paths = [p for p in pdir.iterdir()
+             if p.is_file() and not p.name.endswith(".thumb.jpg")
+             and fe._is_image(p)]
+
+    sem = asyncio.Semaphore(8)
+    async def _index(p):
+        async with sem:
+            return await run_in_threadpool(fe.index_photo_into_cohort, cohort_id, p)
+    raw = await asyncio.gather(*[_index(p) for p in paths], return_exceptions=True)
+
+    new_faces = 0
+    fmap: dict = {}
+    first_error = None
+    failed = []
+    for p, r in zip(paths, raw):
+        if isinstance(r, BaseException):
+            failed.append(p.name)
+            if first_error is None: first_error = str(r)
+        else:
+            safe_id, name, faces, err = r
+            fmap[safe_id] = name
+            new_faces += faces
+            if err:
+                failed.append(name)
+                if first_error is None: first_error = err
+
+    async with _cohort_lock(cohort_id):
+        idx = co.load_face_index(cohort_id)
+        idx["filename_map"] = fmap
+        idx["indexed_faces"] = new_faces
+        co.save_face_index(cohort_id, idx)
+
+    return {
+        "reindexed": len(paths),
+        "indexed_faces": new_faces,
+        "failed": failed,
+        "first_error": first_error,
+    }
+
+
 @app.delete("/api/cohorts/{cohort_id}/photo/{filename}")
 async def delete_cohort_photo(cohort_id: str, filename: str):
     if not co.get_cohort(cohort_id):

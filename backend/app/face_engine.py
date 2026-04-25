@@ -457,6 +457,42 @@ def ensure_cohort_collection(cohort_id: str) -> str:
     return cid
 
 
+REKOGNITION_MAX_BYTES = 5 * 1024 * 1024   # AWS hard limit on Image={"Bytes":...}
+REKOGNITION_TARGET_BYTES = 4 * 1024 * 1024  # leave headroom
+
+
+def _bytes_for_rekognition(photo_path: Path) -> bytes:
+    """Return image bytes that fit Rekognition's 5MB cap.
+
+    HD photos from a photographer routinely exceed 5MB → Rekognition returns
+    413. We downscale in memory (original on disk stays untouched) until the
+    encoded JPEG fits comfortably.
+    """
+    raw = photo_path.read_bytes()
+    if len(raw) <= REKOGNITION_TARGET_BYTES:
+        return raw
+
+    from io import BytesIO
+    from PIL import Image, ImageOps
+    img = Image.open(photo_path)
+    img = ImageOps.exif_transpose(img)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+
+    # Step down dimensions until the encoded JPEG fits the budget.
+    max_edge = 2400
+    for _ in range(5):
+        scaled = img.copy()
+        scaled.thumbnail((max_edge, max_edge))
+        buf = BytesIO()
+        scaled.save(buf, "JPEG", quality=88, optimize=True)
+        data = buf.getvalue()
+        if len(data) <= REKOGNITION_TARGET_BYTES:
+            return data
+        max_edge = int(max_edge * 0.75)
+    return data  # last attempt — ~700px, will almost certainly fit
+
+
 def index_photo_into_cohort(
     cohort_id: str, photo_path: Path
 ) -> Tuple[str, str, int, Optional[str]]:
@@ -472,8 +508,7 @@ def index_photo_into_cohort(
     err: Optional[str] = None
     face_count = 0
     try:
-        with open(photo_path, "rb") as f:
-            image_bytes = f.read()
+        image_bytes = _bytes_for_rekognition(photo_path)
         response = _rek().index_faces(
             CollectionId=cid,
             Image={"Bytes": image_bytes},
