@@ -8,6 +8,7 @@ Layout on disk:
     storage/cohorts/{cohort_id}/face_index.json   (collection_id, filename_map, totals)
 """
 import json
+import os
 import shutil
 import uuid
 from datetime import datetime, timezone
@@ -115,8 +116,13 @@ def load_face_index(cohort_id: str) -> dict:
 
 
 def save_face_index(cohort_id: str, data: dict):
-    with open(face_index_path(cohort_id), "w") as f:
+    """Atomic save: write to .tmp then os.replace so a crash mid-write
+    can't leave a corrupted JSON behind."""
+    final = face_index_path(cohort_id)
+    tmp = final.with_suffix(final.suffix + ".tmp")
+    with open(tmp, "w") as f:
         json.dump(data, f)
+    os.replace(tmp, final)
 
 
 def list_photo_filenames(cohort_id: str) -> List[str]:

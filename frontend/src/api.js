@@ -37,6 +37,8 @@ export const uploadCohortPhotos = (cohortId, files, onProgress) => {
   (Array.isArray(files) ? files : [files]).forEach(f => fd.append("files", f));
   return api.post(`/api/cohorts/${cohortId}/photos`, fd, {
     onUploadProgress: onProgress,
+    // Cap each batch at 5min so a stuck request doesn't freeze the worker pool.
+    timeout: 5 * 60 * 1000,
   }).then(r => r.data);
 };
 

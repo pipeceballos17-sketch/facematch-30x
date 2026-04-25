@@ -141,13 +141,26 @@ async def list_cohort_photos(cohort_id: str):
     return {"photos": co.list_photo_filenames(cohort_id)}
 
 
+# Per-cohort lock so concurrent /photos requests can't race the JSON write.
+import asyncio as _asyncio
+COHORT_LOCKS: dict = {}
+
+def _cohort_lock(cohort_id: str) -> _asyncio.Lock:
+    lock = COHORT_LOCKS.get(cohort_id)
+    if lock is None:
+        lock = _asyncio.Lock()
+        COHORT_LOCKS[cohort_id] = lock
+    return lock
+
+
 @app.post("/api/cohorts/{cohort_id}/photos")
 async def upload_cohort_photos(
     cohort_id: str,
     files: List[UploadFile] = File(...),
 ):
-    """Append a batch of photos to a cohort's pool. Indexes each in parallel.
-    Designed to be called repeatedly from the frontend with small batches."""
+    """Append a batch of photos to a cohort's pool. Indexes each in parallel,
+    then merges all results into face_index.json under a per-cohort lock so
+    parallel requests can't corrupt the file."""
     import asyncio
     if not co.get_cohort(cohort_id):
         raise HTTPException(status_code=404, detail="Cohort not found")
@@ -168,17 +181,52 @@ async def upload_cohort_photos(
                 await f.write(chunk)
         saved.append(dest)
 
-    # Index in parallel — Rekognition handles ~10 concurrent calls comfortably.
+    # Index in parallel. Each call returns (safe_id, name, faces, err) and
+    # does NOT touch face_index.json (that's done once below, under the lock).
     sem = asyncio.Semaphore(8)
     async def _index(p: Path):
         async with sem:
             return await run_in_threadpool(fe.index_photo_into_cohort, cohort_id, p)
-    results = await asyncio.gather(
+    raw_results = await asyncio.gather(
         *[_index(p) for p in saved], return_exceptions=True
     )
-    indexed = sum(r for r in results if isinstance(r, int))
-    failed = [str(p.name) for p, r in zip(saved, results) if isinstance(r, Exception)]
-    return {"saved": len(saved), "indexed_faces": indexed, "failed": failed}
+
+    # Normalise into per-photo records.
+    records = []
+    first_error = None
+    for p, r in zip(saved, raw_results):
+        if isinstance(r, BaseException):
+            records.append({"file": p.name, "faces": 0, "error": str(r)})
+            if first_error is None:
+                first_error = str(r)
+        else:
+            safe_id, original_name, faces, err = r
+            records.append({
+                "safe_id": safe_id, "name": original_name,
+                "faces": faces, "error": err,
+            })
+            if err and first_error is None:
+                first_error = err
+
+    # Single serialised JSON write per request, per cohort.
+    new_faces = sum(rec.get("faces", 0) for rec in records)
+    async with _cohort_lock(cohort_id):
+        idx = co.load_face_index(cohort_id)
+        fmap = idx.setdefault("filename_map", {})
+        for rec in records:
+            if rec.get("safe_id"):
+                fmap[rec["safe_id"]] = rec["name"]
+        idx["indexed_faces"] = idx.get("indexed_faces", 0) + new_faces
+        co.save_face_index(cohort_id, idx)
+
+    failed = [rec["name"] if rec.get("name") else rec["file"]
+              for rec in records if rec.get("error")]
+    return {
+        "saved": len(saved),
+        "indexed_faces": new_faces,
+        "failed": failed,
+        "first_error": first_error,
+    }
 
 
 @app.delete("/api/cohorts/{cohort_id}/photo/{filename}")

@@ -134,7 +134,7 @@ export default function CohortDetail({ cohort, onBack }) {
   const [queueFailed, setQueueFailed]   = useState(0);
   const [queueIndexed, setQueueIndexed] = useState(0);
   const [queueStage, setQueueStage]     = useState(""); // "scanning" | "uploading" | ""
-  const [debugInfo, setDebugInfo]       = useState(""); // visible diagnostic line
+  const [lastError, setLastError]       = useState(""); // surfaced server first_error
   const uploading = queueStage !== "";
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
@@ -163,6 +163,7 @@ export default function CohortDetail({ cohort, onBack }) {
     setQueueDone(0);
     setQueueFailed(0);
     setQueueIndexed(0);
+    setLastError("");
     setQueueStage("uploading");
 
     const batches = [];
@@ -179,8 +180,10 @@ export default function CohortDetail({ cohort, onBack }) {
           setQueueDone(d => d + (r.saved || 0));
           setQueueFailed(f => f + (r.failed?.length || 0));
           setQueueIndexed(i => i + (r.indexed_faces || 0));
-        } catch {
+          if (r.first_error) setLastError(prev => prev || r.first_error);
+        } catch (err) {
           setQueueFailed(f => f + batch.length);
+          setLastError(prev => prev || (err?.message || "Network error"));
         }
       }
     });
@@ -191,13 +194,11 @@ export default function CohortDetail({ cohort, onBack }) {
   };
 
   const handlePicker = (e) => {
-    const all = Array.from(e.target.files || []);
-    const files = all.filter(f => isImageName(f.name));
+    const files = Array.from(e.target.files || []).filter(f => isImageName(f.name));
     e.target.value = "";
     if (uploading) return;
-    setDebugInfo(`PICKER · ${all.length} files seleccionadas · ${files.length} son imágenes`);
     if (!files.length) {
-      setDebugInfo(d => `${d} · NADA. Asegúrate de elegir .jpg/.png/.webp`);
+      setLastError("No se encontraron imágenes en la selección.");
       return;
     }
     runUpload(files);
@@ -207,25 +208,18 @@ export default function CohortDetail({ cohort, onBack }) {
     e.preventDefault();
     setDragOver(false);
     if (uploading) return;
-    setDebugInfo("");
     // Snapshot SYNCHRONOUSLY — items list dies after this handler returns.
     const snap = snapshotDrop(e);
-    setDebugInfo(
-      `DROP recibido · ${snap.entries.length} entries (folder API) · ${snap.flatFiles.length} flat files`
-    );
     setQueueStage("scanning");
     try {
       const files = await expandSnapshot(snap);
-      setDebugInfo(d => `${d} → ${files.length} fotos detectadas`);
       if (!files.length) {
-        setDebugInfo(d =>
-          `${d} · NADA. Posibles causas: (1) deploy de Vercel aún no actualiza — Ctrl+Shift+R; (2) arrastraste un .zip — descomprímelo primero; (3) tu navegador no expone el API del folder. Usa el botón "Elegir fotos".`
-        );
+        setLastError("No se encontraron imágenes en el drop. Arrastra fotos o una carpeta.");
         return;
       }
       await runUpload(files);
     } catch (err) {
-      setDebugInfo(d => `${d} · ERROR: ${err?.message || err}`);
+      setLastError(err?.message || "Error procesando el drop.");
     } finally {
       setQueueStage(s => (s === "scanning" ? "" : s));
     }
@@ -354,9 +348,10 @@ export default function CohortDetail({ cohort, onBack }) {
         )}
       </div>
 
-      {debugInfo && (
-        <div className="mb-6 p-3 rounded-lg bg-x-surface2 border border-x-border text-[11px] font-mono text-x-muted whitespace-pre-wrap break-words">
-          {debugInfo}
+      {lastError && !uploading && (
+        <div className="mb-6 p-3 rounded-lg border border-red-700/60 bg-red-950/30 text-xs text-red-300">
+          <strong className="block mb-0.5">Hubo problemas en el último upload</strong>
+          <span className="font-mono break-words">{lastError}</span>
         </div>
       )}
 

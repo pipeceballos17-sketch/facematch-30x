@@ -52,14 +52,30 @@ def _is_image(path: Path) -> bool:
 
 
 def _normalize_image(image_path: str):
-    """Fix EXIF rotation and ensure RGB JPEG so Rekognition reads it correctly."""
+    """Fix EXIF rotation + ensure RGB so Rekognition reads correctly.
+
+    Skips the costly re-encode when the file is already a clean RGB JPEG with
+    no EXIF rotation — saves ~5-10s of CPU per HD photo when there's nothing
+    to fix (the common case).
+    """
     try:
         from PIL import Image, ImageOps
         img = Image.open(image_path)
-        img = ImageOps.exif_transpose(img)
-        if img.mode != "RGB":
-            img = img.convert("RGB")
-        img.save(image_path, "JPEG", quality=95)
+        original_size = img.size
+        original_mode = img.mode
+        original_format = (img.format or "").upper()
+
+        rotated = ImageOps.exif_transpose(img)
+        needs_rotate = rotated.size != original_size
+        needs_convert = original_mode != "RGB"
+        needs_format = original_format not in ("JPEG", "JPG")
+
+        if not (needs_rotate or needs_convert or needs_format):
+            return  # nothing to fix — skip the expensive save
+
+        if needs_convert:
+            rotated = rotated.convert("RGB")
+        rotated.save(image_path, "JPEG", quality=95)
     except Exception as e:
         logger.warning(f"Could not normalize {image_path}: {e}")
 
@@ -441,16 +457,24 @@ def ensure_cohort_collection(cohort_id: str) -> str:
     return cid
 
 
-def index_photo_into_cohort(cohort_id: str, photo_path: Path) -> int:
-    """Index a single photo into the cohort's collection. Returns face count."""
+def index_photo_into_cohort(
+    cohort_id: str, photo_path: Path
+) -> Tuple[str, str, int, Optional[str]]:
+    """Index one photo. Returns (safe_id, original_name, face_count, error_msg).
+
+    Does NOT touch face_index.json — the caller is responsible for the single
+    serialized write (see upload_cohort_photos in main.py). This avoids the
+    race where parallel workers corrupt the JSON file.
+    """
     cid = ensure_cohort_collection(cohort_id)
     _normalize_image(str(photo_path))
     safe_id = _safe_ext_id(photo_path.name)
-    client = _rek()
+    err: Optional[str] = None
+    face_count = 0
     try:
         with open(photo_path, "rb") as f:
             image_bytes = f.read()
-        response = client.index_faces(
+        response = _rek().index_faces(
             CollectionId=cid,
             Image={"Bytes": image_bytes},
             ExternalImageId=safe_id,
@@ -460,18 +484,17 @@ def index_photo_into_cohort(cohort_id: str, photo_path: Path) -> int:
         )
         face_count = len(response.get("FaceRecords", []))
     except Exception as e:
+        err = str(e)
         logger.warning(f"Could not index {photo_path.name}: {e}")
-        face_count = 0
 
-    # Update face_index.json (filename_map + counter)
-    idx = co.load_face_index(cohort_id)
-    idx.setdefault("filename_map", {})[safe_id] = photo_path.name
-    idx["indexed_faces"] = idx.get("indexed_faces", 0) + face_count
-    co.save_face_index(cohort_id, idx)
+    # Always generate the thumbnail companion, even if Rekognition skipped this
+    # one — we still want the photo visible in the grid.
+    try:
+        make_thumbnail(photo_path)
+    except Exception as e:
+        logger.warning(f"Thumbnail failed for {photo_path.name}: {e}")
 
-    # Generate thumbnail companion
-    make_thumbnail(photo_path)
-    return face_count
+    return safe_id, photo_path.name, face_count, err
 
 
 def remove_photo_from_cohort(cohort_id: str, filename: str):
