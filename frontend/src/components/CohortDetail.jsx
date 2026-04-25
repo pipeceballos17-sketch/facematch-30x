@@ -134,6 +134,7 @@ export default function CohortDetail({ cohort, onBack }) {
   const [queueFailed, setQueueFailed]   = useState(0);
   const [queueIndexed, setQueueIndexed] = useState(0);
   const [queueStage, setQueueStage]     = useState(""); // "scanning" | "uploading" | ""
+  const [debugInfo, setDebugInfo]       = useState(""); // visible diagnostic line
   const uploading = queueStage !== "";
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
@@ -190,9 +191,15 @@ export default function CohortDetail({ cohort, onBack }) {
   };
 
   const handlePicker = (e) => {
-    const files = Array.from(e.target.files || []).filter(f => isImageName(f.name));
+    const all = Array.from(e.target.files || []);
+    const files = all.filter(f => isImageName(f.name));
     e.target.value = "";
     if (uploading) return;
+    setDebugInfo(`PICKER · ${all.length} files seleccionadas · ${files.length} son imágenes`);
+    if (!files.length) {
+      setDebugInfo(d => `${d} · NADA. Asegúrate de elegir .jpg/.png/.webp`);
+      return;
+    }
     runUpload(files);
   };
 
@@ -200,16 +207,25 @@ export default function CohortDetail({ cohort, onBack }) {
     e.preventDefault();
     setDragOver(false);
     if (uploading) return;
+    setDebugInfo("");
     // Snapshot SYNCHRONOUSLY — items list dies after this handler returns.
     const snap = snapshotDrop(e);
+    setDebugInfo(
+      `DROP recibido · ${snap.entries.length} entries (folder API) · ${snap.flatFiles.length} flat files`
+    );
     setQueueStage("scanning");
     try {
       const files = await expandSnapshot(snap);
+      setDebugInfo(d => `${d} → ${files.length} fotos detectadas`);
       if (!files.length) {
-        alert("No se encontraron imágenes en el drop. Asegúrate de arrastrar fotos (.jpg .png .webp) o una carpeta que las contenga.");
+        setDebugInfo(d =>
+          `${d} · NADA. Posibles causas: (1) deploy de Vercel aún no actualiza — Ctrl+Shift+R; (2) arrastraste un .zip — descomprímelo primero; (3) tu navegador no expone el API del folder. Usa el botón "Elegir fotos".`
+        );
         return;
       }
       await runUpload(files);
+    } catch (err) {
+      setDebugInfo(d => `${d} · ERROR: ${err?.message || err}`);
     } finally {
       setQueueStage(s => (s === "scanning" ? "" : s));
     }
@@ -337,6 +353,12 @@ export default function CohortDetail({ cohort, onBack }) {
           </>
         )}
       </div>
+
+      {debugInfo && (
+        <div className="mb-6 p-3 rounded-lg bg-x-surface2 border border-x-border text-[11px] font-mono text-x-muted whitespace-pre-wrap break-words">
+          {debugInfo}
+        </div>
+      )}
 
       {/* Photo pool */}
       <div className="bg-x-surface border border-x-border rounded-2xl p-5">
