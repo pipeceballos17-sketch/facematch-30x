@@ -33,9 +33,8 @@ class Cohort(BaseModel):
     description: Optional[str] = None
     cover_color: Optional[str] = None    # hex fallback when no cover image
     created_at: str
-    event_count: int = 0
-    matched_photos: int = 0
-    matched_participants: int = 0
+    total_photos: int = 0
+    indexed_faces: int = 0
 
 
 class CohortCreate(BaseModel):

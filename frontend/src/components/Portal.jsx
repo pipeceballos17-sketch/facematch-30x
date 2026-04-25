@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import {
   listPortalCohorts, getCohortPortalInfo,
-  matchSelfieInCohort, getEventPhotoUrl,
+  matchSelfieInCohort, getCohortPhotoUrl,
   downloadCohortSelection,
 } from "../api";
 
@@ -40,13 +40,6 @@ function downloadViaLink(url, filename) {
 }
 
 const LOGO = "https://res.cloudinary.com/do4mzgggm/image/upload/v1772313638/image_74_zxymrr.png";
-
-function formatEventDate(iso) {
-  if (!iso) return "";
-  try {
-    return new Date(iso).toLocaleDateString("es-MX", { day: "numeric", month: "short" });
-  } catch { return ""; }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LANDING
@@ -218,21 +211,20 @@ function CohortPortal({ cohortId }) {
   const [selfiePreview, setSelfiePreview] = useState(null);
   const [matching, setMatching]         = useState(false);
   const [matchError, setMatchError]     = useState(null);
-  const [resultEvents, setResultEvents] = useState([]);
-  const [totalMatches, setTotalMatches] = useState(0);
+  const [resultPhotos, setResultPhotos] = useState([]);   // flat list of filenames
   const [usedWideSearch, setUsedWideSearch] = useState(false);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
 
-  const toggleSelect = (eventId, filename) => {
-    const key = `${eventId}/${filename}`;
+  const toggleSelect = (filename) => {
     setSelected(prev => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      if (next.has(filename)) next.delete(filename); else next.add(filename);
       return next;
     });
   };
   const clearSelection = () => setSelected(new Set());
+  const totalMatches = resultPhotos.length;
 
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
@@ -266,8 +258,7 @@ function CohortPortal({ cohortId }) {
     setStep("matching");
     try {
       const result = await matchSelfieInCohort(cohortId, selfieFile, wide ? 0.62 : null);
-      setResultEvents(result.events || []);
-      setTotalMatches(result.total_matches || 0);
+      setResultPhotos(result.matched_photos || []);
       setStep("results");
     } catch {
       setMatchError("Error al procesar tu selfie. Intenta con otra foto.");
@@ -279,20 +270,17 @@ function CohortPortal({ cohortId }) {
 
   const handleDownloadAll = async () => {
     if (downloadingAll) return;
-    const allSelections = resultEvents.flatMap(ev =>
-      ev.matched_photos.map(filename => ({ event_id: ev.event_id, filename }))
-    );
+    const pool = resultPhotos;
     const selections = selected.size > 0
-      ? allSelections.filter(s => selected.has(`${s.event_id}/${s.filename}`))
-      : allSelections;
+      ? pool.filter(f => selected.has(f))
+      : pool;
     if (selections.length === 0) return;
 
     setDownloadingAll(true);
     try {
-      // Single file → download the raw image (friendlier than a 1-file ZIP)
       if (selections.length === 1) {
-        const { event_id, filename } = selections[0];
-        const url = `${getEventPhotoUrl(event_id, filename)}?download=1`;
+        const filename = selections[0];
+        const url = `${getCohortPhotoUrl(cohortId, filename)}?download=1`;
         downloadViaLink(url, filename);
       } else {
         const blob = await downloadCohortSelection(cohortId, selections);
@@ -343,7 +331,7 @@ function CohortPortal({ cohortId }) {
     </div>
   );
 
-  const totalPhotosInCohort = (cohortInfo.events || []).reduce((s, e) => s + (e.total_photos || 0), 0);
+  const totalPhotosInCohort = cohortInfo.total_photos || 0;
 
   return (
     <div style={{ minHeight: "100vh", background: "#0a0a0a", color: "#fafafa" }}>
@@ -364,8 +352,7 @@ function CohortPortal({ cohortId }) {
                 </div>
                 <h2 className="font-bold text-lg mb-1" style={{ color: "#fafafa" }}>Encuéntrate en las fotos</h2>
                 <p className="text-sm" style={{ color: "#fafafa" }}>
-                  Sube una selfie y te buscamos en {totalPhotosInCohort} fotos
-                  {cohortInfo.events?.length > 1 && ` de ${cohortInfo.events.length} días`}.
+                  Sube una selfie y te buscamos en {totalPhotosInCohort} fotos.
                 </p>
               </div>
 
@@ -472,7 +459,6 @@ function CohortPortal({ cohortId }) {
             <p className="font-bold text-lg mb-1" style={{ color: "#fafafa" }}>Buscando tu cara...</p>
             <p className="text-sm" style={{ color: "#fafafa" }}>
               Analizando {totalPhotosInCohort} fotos
-              {cohortInfo.events?.length > 1 && ` de ${cohortInfo.events.length} días`}
             </p>
           </div>
         )}
@@ -488,7 +474,7 @@ function CohortPortal({ cohortId }) {
               }}
             >
               <button
-                onClick={() => { setStep("upload"); setResultEvents([]); setTotalMatches(0); clearSelection(); }}
+                onClick={() => { setStep("upload"); setResultPhotos([]); clearSelection(); }}
                 className="p-1.5 rounded-lg shrink-0"
                 style={{ border: "1px solid #2d2d2d", color: "#ebff6f", background: "#0a0a0a" }}
               >
@@ -510,81 +496,52 @@ function CohortPortal({ cohortId }) {
 
             {totalMatches > 0 ? (
               <>
-                {resultEvents.filter(ev => ev.count > 0).map((ev, idx) => (
-                  <div key={ev.event_id} className="mb-8">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
+                <div className="grid grid-cols-2 gap-3 mb-6">
+                  {resultPhotos.map(filename => {
+                    const isSelected = selected.has(filename);
+                    return (
+                      <div
+                        key={filename}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => toggleSelect(filename)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            toggleSelect(filename);
+                          }
+                        }}
+                        aria-label={isSelected ? "Quitar de selección" : "Seleccionar foto"}
+                        aria-pressed={isSelected}
+                        className="relative rounded-xl overflow-hidden transition-all active:scale-[0.98] cursor-pointer"
+                        style={{
+                          border: isSelected ? "3px solid #ebff6f" : "1px solid #2d2d2d",
+                        }}
+                      >
+                        <img
+                          src={`${getCohortPhotoUrl(cohortId, filename)}?thumb=1`}
+                          alt={filename}
+                          className="w-full aspect-square object-cover"
+                          loading="lazy"
+                          decoding="async"
+                          draggable={false}
+                          style={{ opacity: isSelected ? 0.88 : 1 }}
+                        />
                         <div
-                          className="w-7 h-7 rounded-lg flex items-center justify-center"
-                          style={{ background: "#ebff6f20" }}
+                          className="absolute top-1.5 left-1.5 rounded-full flex items-center justify-center pointer-events-none transition-all"
+                          style={{
+                            width: 30, height: 30,
+                            background: isSelected ? "#ebff6f" : "rgba(10,10,10,0.55)",
+                            border: isSelected ? "2px solid #ebff6f" : "1.5px solid rgba(250,250,250,0.45)",
+                            color: isSelected ? "#1c1c1c" : "transparent",
+                          }}
                         >
-                          <CalendarDays size={13} style={{ color: "#ebff6f" }} />
-                        </div>
-                        <div>
-                          <p className="text-sm font-bold" style={{ color: "#fafafa" }}>
-                            {resultEvents.length > 1 ? `Día ${idx + 1} — ` : ""}{ev.event_name}
-                          </p>
-                          {ev.created_at && (
-                            <p className="text-[10px]" style={{ color: "#fafafa" }}>
-                              {formatEventDate(ev.created_at)}
-                            </p>
-                          )}
+                          {isSelected && <Check size={16} strokeWidth={3} />}
                         </div>
                       </div>
-                      <span className="text-xs font-bold" style={{ color: "#ebff6f" }}>
-                        {ev.count} foto{ev.count !== 1 ? "s" : ""}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      {ev.matched_photos.map(filename => {
-                        const key = `${ev.event_id}/${filename}`;
-                        const isSelected = selected.has(key);
-                        return (
-                          <div
-                            key={filename}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => toggleSelect(ev.event_id, filename)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                toggleSelect(ev.event_id, filename);
-                              }
-                            }}
-                            aria-label={isSelected ? "Quitar de selección" : "Seleccionar foto"}
-                            aria-pressed={isSelected}
-                            className="relative rounded-xl overflow-hidden transition-all active:scale-[0.98] cursor-pointer"
-                            style={{
-                              border: isSelected ? "3px solid #ebff6f" : "1px solid #2d2d2d",
-                            }}
-                          >
-                            <img
-                              src={`${getEventPhotoUrl(ev.event_id, filename)}?thumb=1`}
-                              alt={filename}
-                              className="w-full aspect-square object-cover"
-                              loading="lazy"
-                              decoding="async"
-                              draggable={false}
-                              style={{ opacity: isSelected ? 0.88 : 1 }}
-                            />
-
-                            <div
-                              className="absolute top-1.5 left-1.5 rounded-full flex items-center justify-center pointer-events-none transition-all"
-                              style={{
-                                width: 30, height: 30,
-                                background: isSelected ? "#ebff6f" : "rgba(10,10,10,0.55)",
-                                border: isSelected ? "2px solid #ebff6f" : "1.5px solid rgba(250,250,250,0.45)",
-                                color: isSelected ? "#1c1c1c" : "transparent",
-                              }}
-                            >
-                              {isSelected && <Check size={16} strokeWidth={3} />}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+                    );
+                  })}
+                </div>
                 <button
                   onClick={handleDownloadAll}
                   disabled={downloadingAll}
@@ -630,7 +587,7 @@ function CohortPortal({ cohortId }) {
                     </button>
                   )}
                   <button
-                    onClick={() => { setStep("upload"); resetSelfie(); setResultEvents([]); setTotalMatches(0); setUsedWideSearch(false); }}
+                    onClick={() => { setStep("upload"); resetSelfie(); setResultPhotos([]); setUsedWideSearch(false); }}
                     className="px-5 py-2.5 rounded-xl text-sm transition-colors"
                     style={{ border: "1px solid #2d2d2d", color: "#fafafa", background: "#0a0a0a" }}
                   >

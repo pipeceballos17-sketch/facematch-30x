@@ -420,3 +420,160 @@ def create_full_result_zip(event_id: str) -> Optional[Path]:
                     if _is_image(photo):
                         zf.write(photo, f"{folder.name}/{photo.name}")
     return zip_path
+
+
+# ═══════════════════════════════════════════════════════════════════
+# COHORT-LEVEL FACE OPERATIONS  (the new model — single pool/collection)
+# ═══════════════════════════════════════════════════════════════════
+
+from app import cohorts as co  # late import to avoid circular dep at top
+
+
+def ensure_cohort_collection(cohort_id: str) -> str:
+    """Idempotent: create the cohort's Rekognition collection if missing."""
+    cid = co.collection_id(cohort_id)
+    client = _rek()
+    try:
+        client.create_collection(CollectionId=cid)
+        logger.info(f"Created Rekognition collection {cid}")
+    except client.exceptions.ResourceAlreadyExistsException:
+        pass
+    return cid
+
+
+def index_photo_into_cohort(cohort_id: str, photo_path: Path) -> int:
+    """Index a single photo into the cohort's collection. Returns face count."""
+    cid = ensure_cohort_collection(cohort_id)
+    _normalize_image(str(photo_path))
+    safe_id = _safe_ext_id(photo_path.name)
+    client = _rek()
+    try:
+        with open(photo_path, "rb") as f:
+            image_bytes = f.read()
+        response = client.index_faces(
+            CollectionId=cid,
+            Image={"Bytes": image_bytes},
+            ExternalImageId=safe_id,
+            MaxFaces=10,
+            QualityFilter="AUTO",
+            DetectionAttributes=[],
+        )
+        face_count = len(response.get("FaceRecords", []))
+    except Exception as e:
+        logger.warning(f"Could not index {photo_path.name}: {e}")
+        face_count = 0
+
+    # Update face_index.json (filename_map + counter)
+    idx = co.load_face_index(cohort_id)
+    idx.setdefault("filename_map", {})[safe_id] = photo_path.name
+    idx["indexed_faces"] = idx.get("indexed_faces", 0) + face_count
+    co.save_face_index(cohort_id, idx)
+
+    # Generate thumbnail companion
+    make_thumbnail(photo_path)
+    return face_count
+
+
+def remove_photo_from_cohort(cohort_id: str, filename: str):
+    """Delete a photo from cohort pool + Rekognition + face_index."""
+    pdir = co.photos_dir(cohort_id)
+    photo_path = pdir / Path(filename).name
+    if not photo_path.exists():
+        return False
+
+    safe_id = _safe_ext_id(photo_path.name)
+    cid = co.collection_id(cohort_id)
+    # Remove face(s) for this image from Rekognition
+    try:
+        client = _rek()
+        # List faces with this ExternalImageId, then delete by FaceId
+        face_ids = []
+        paginator = client.get_paginator("list_faces")
+        for page in paginator.paginate(CollectionId=cid):
+            for face in page.get("Faces", []):
+                if face.get("ExternalImageId") == safe_id:
+                    face_ids.append(face["FaceId"])
+        if face_ids:
+            client.delete_faces(CollectionId=cid, FaceIds=face_ids)
+    except Exception as e:
+        logger.warning(f"Could not remove faces for {filename}: {e}")
+
+    # Remove file + thumb
+    try:
+        photo_path.unlink()
+    except OSError:
+        pass
+    thumb = thumb_path_for(photo_path)
+    if thumb.exists():
+        try:
+            thumb.unlink()
+        except OSError:
+            pass
+
+    # Update face_index.json
+    idx = co.load_face_index(cohort_id)
+    fmap = idx.get("filename_map", {})
+    if safe_id in fmap:
+        del fmap[safe_id]
+    idx["filename_map"] = fmap
+    co.save_face_index(cohort_id, idx)
+    return True
+
+
+def match_selfie_to_cohort(
+    cohort_id: str,
+    selfie_path: str,
+    threshold: Optional[float] = None,
+) -> List[str]:
+    """SearchFacesByImage against the cohort's collection."""
+    idx = co.load_face_index(cohort_id)
+    cid = idx.get("collection_id", co.collection_id(cohort_id))
+    filename_map: Dict[str, str] = idx.get("filename_map", {})
+    match_threshold = int(threshold) if threshold is not None else THRESHOLD
+
+    _normalize_image(selfie_path)
+
+    try:
+        with open(selfie_path, "rb") as f:
+            image_bytes = f.read()
+        client = _rek()
+        response = client.search_faces_by_image(
+            CollectionId=cid,
+            Image={"Bytes": image_bytes},
+            MaxFaces=200,
+            FaceMatchThreshold=match_threshold,
+        )
+        matched = set()
+        for match in response.get("FaceMatches", []):
+            safe_id = match["Face"]["ExternalImageId"]
+            filename = filename_map.get(safe_id, safe_id)
+            matched.add(filename)
+        return list(matched)
+    except Exception as e:
+        logger.warning(f"Cohort selfie match error: {e}")
+        return []
+
+
+def delete_cohort_collection(cohort_id: str):
+    try:
+        _rek().delete_collection(CollectionId=co.collection_id(cohort_id))
+        logger.info(f"Deleted Rekognition collection for cohort {cohort_id}")
+    except Exception as e:
+        logger.warning(f"Could not delete cohort collection {cohort_id}: {e}")
+
+
+def wipe_all_rekognition_collections():
+    """Destructive: delete every Rekognition collection in the account.
+    Used by the /admin/wipe endpoint when starting from a clean slate."""
+    try:
+        client = _rek()
+        paginator = client.get_paginator("list_collections")
+        for page in paginator.paginate():
+            for cid in page.get("CollectionIds", []):
+                try:
+                    client.delete_collection(CollectionId=cid)
+                    logger.info(f"Wiped collection {cid}")
+                except Exception as e:
+                    logger.warning(f"Could not delete {cid}: {e}")
+    except Exception as e:
+        logger.warning(f"wipe_all_rekognition_collections failed: {e}")

@@ -3,7 +3,6 @@ import re
 import uuid
 import csv
 import io
-import json
 import logging
 from pathlib import Path
 from typing import List, Optional
@@ -25,7 +24,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.models import (
     Participant,
     LinkedInSearchResult,
-    ProcessingStatus,
     Cohort,
 )
 from app import linkedin as li
@@ -44,7 +42,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-processing_jobs: dict = {}
 csv_import_jobs: dict = {}
 
 TEMP_DIR = STORAGE_BASE / "temp"
@@ -58,10 +55,7 @@ _PUBLIC_RE = re.compile(
     r"|/api/cohorts/[^/]+/portal-info$"
     r"|/api/cohorts/[^/]+/match-selfie$"
     r"|/api/cohorts/[^/]+/download-selection$"
-    r"|/api/events/[^/]+/match-selfie$"
-    r"|/api/events/[^/]+/add-photos$"
-    r"|/api/events/[^/]+/info$"
-    r"|/api/events/[^/]+/photo/[^/]+$"
+    r"|/api/cohorts/[^/]+/photo/[^/]+$"
     r"|/docs|/openapi\.json|/redoc)"
 )
 
@@ -90,17 +84,7 @@ async def list_cohorts():
     raw = co.list_cohorts()
     result = []
     for c in raw:
-        # Compute live stats from associated events
-        event_ids = c.get("event_ids", [])
-        total_matched_photos = 0
-        total_matched_participants = 0
-        for eid in event_ids:
-            rp = fe.RESULTS_DIR / eid / "result.json"
-            if rp.exists():
-                with open(rp) as f:
-                    d = json.load(f)
-                total_matched_photos += d.get("total_photos", 0)
-                total_matched_participants += d.get("indexed_faces", 0)
+        s = co.stats(c["id"])
         result.append(Cohort(
             id=c["id"],
             name=c["name"],
@@ -108,9 +92,8 @@ async def list_cohorts():
             description=c.get("description"),
             cover_color=c.get("cover_color"),
             created_at=c["created_at"],
-            event_count=len(event_ids),
-            matched_photos=total_matched_photos,
-            matched_participants=total_matched_participants,
+            total_photos=s["total_photos"],
+            indexed_faces=s["indexed_faces"],
         ))
     return result
 
@@ -142,45 +125,105 @@ async def get_cohort(cohort_id: str):
 
 @app.delete("/api/cohorts/{cohort_id}")
 async def delete_cohort(cohort_id: str):
-    ok = co.delete_cohort(cohort_id)
-    if not ok:
+    if not co.get_cohort(cohort_id):
         raise HTTPException(status_code=404, detail="Cohort not found")
+    fe.delete_cohort_collection(cohort_id)
+    co.delete_cohort(cohort_id)
     return {"ok": True}
 
 
-@app.get("/api/cohorts/{cohort_id}/events")
-async def get_cohort_events(cohort_id: str):
-    """Return all events (with results) belonging to a cohort."""
-    c = co.get_cohort(cohort_id)
-    if not c:
+# ── Cohort photo pool ─────────────────────────────────────────────
+
+@app.get("/api/cohorts/{cohort_id}/photos")
+async def list_cohort_photos(cohort_id: str):
+    if not co.get_cohort(cohort_id):
         raise HTTPException(status_code=404, detail="Cohort not found")
-    events = []
-    for eid in c.get("event_ids", []):
-        rp = fe.RESULTS_DIR / eid / "result.json"
-        if rp.exists():
-            with open(rp) as f:
-                d = json.load(f)
-            status_obj = processing_jobs.get(eid)
-            events.append({
-                "event_id": eid,
-                "event_name": d.get("event_name", eid),
-                "status": status_obj.status if status_obj else "done",
-                "total_photos": d.get("total_photos", 0),
-                "indexed_faces": d.get("indexed_faces", 0),
-                "created_at": d.get("created_at", ""),
-            })
-        else:
-            status_obj = processing_jobs.get(eid)
-            if status_obj:
-                events.append({
-                    "event_id": eid,
-                    "event_name": status_obj.event_name or eid,
-                    "status": status_obj.status,
-                    "total_photos": status_obj.total_photos,
-                    "indexed_faces": 0,
-                    "created_at": "",
-                })
-    return events
+    return {"photos": co.list_photo_filenames(cohort_id)}
+
+
+@app.post("/api/cohorts/{cohort_id}/photos")
+async def upload_cohort_photos(
+    cohort_id: str,
+    files: List[UploadFile] = File(...),
+):
+    """Append a batch of photos to a cohort's pool. Indexes each in parallel.
+    Designed to be called repeatedly from the frontend with small batches."""
+    import asyncio
+    if not co.get_cohort(cohort_id):
+        raise HTTPException(status_code=404, detail="Cohort not found")
+    pdir = co.photos_dir(cohort_id)
+
+    # Persist uploads to disk, streaming chunked writes to keep RAM low.
+    saved: List[Path] = []
+    for upload in files:
+        ext = (Path(upload.filename or "").suffix or ".jpg").lower()
+        if ext not in fe.SUPPORTED_EXTENSIONS:
+            continue
+        dest = pdir / f"{uuid.uuid4().hex}{ext}"
+        async with aiofiles.open(dest, "wb") as f:
+            while True:
+                chunk = await upload.read(1024 * 1024)  # 1 MiB
+                if not chunk:
+                    break
+                await f.write(chunk)
+        saved.append(dest)
+
+    # Index in parallel — Rekognition handles ~10 concurrent calls comfortably.
+    sem = asyncio.Semaphore(8)
+    async def _index(p: Path):
+        async with sem:
+            return await run_in_threadpool(fe.index_photo_into_cohort, cohort_id, p)
+    results = await asyncio.gather(
+        *[_index(p) for p in saved], return_exceptions=True
+    )
+    indexed = sum(r for r in results if isinstance(r, int))
+    failed = [str(p.name) for p, r in zip(saved, results) if isinstance(r, Exception)]
+    return {"saved": len(saved), "indexed_faces": indexed, "failed": failed}
+
+
+@app.delete("/api/cohorts/{cohort_id}/photo/{filename}")
+async def delete_cohort_photo(cohort_id: str, filename: str):
+    if not co.get_cohort(cohort_id):
+        raise HTTPException(status_code=404, detail="Cohort not found")
+    ok = await run_in_threadpool(fe.remove_photo_from_cohort, cohort_id, filename)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Foto no encontrada")
+    return {"ok": True}
+
+
+@app.get("/api/cohorts/{cohort_id}/photo/{filename}")
+async def get_cohort_photo(
+    cohort_id: str,
+    filename: str,
+    download: Optional[int] = 0,
+    thumb: Optional[int] = 0,
+):
+    """Public: serve a cohort photo. ?thumb=1 = small JPEG, ?download=1 = attachment."""
+    if not co.get_cohort(cohort_id):
+        raise HTTPException(status_code=404, detail="Cohort no encontrado")
+    safe = Path(filename).name
+    photo_path = co.photos_dir(cohort_id) / safe
+    if not photo_path.exists():
+        raise HTTPException(status_code=404, detail="Foto no encontrada")
+    if thumb and not download:
+        tp = fe.thumb_path_for(photo_path)
+        if not tp.exists():
+            generated = await run_in_threadpool(fe.make_thumbnail, photo_path)
+            if generated and generated.exists():
+                tp = generated
+        if tp.exists():
+            return FileResponse(
+                str(tp),
+                media_type="image/jpeg",
+                headers={"Cache-Control": "public, max-age=31536000, immutable"},
+            )
+    if download:
+        return FileResponse(
+            str(photo_path),
+            filename=safe,
+            headers={"Content-Disposition": f'attachment; filename="{safe}"'},
+        )
+    return FileResponse(str(photo_path))
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -432,444 +475,40 @@ async def get_csv_import_status(import_id: str):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# EVENTS & FACE MATCHING
-# ═══════════════════════════════════════════════════════════════════
-
-@app.post("/api/events/upload")
-async def upload_event_photos(
-    background_tasks: BackgroundTasks,
-    files: List[UploadFile] = File(...),
-    event_name: Optional[str] = Form(None),
-    cohort_id: Optional[str] = Form(None),
-):
-    if not files:
-        raise HTTPException(status_code=400, detail="No files provided.")
-
-    if cohort_id:
-        c = co.get_cohort(cohort_id)
-        if not c:
-            raise HTTPException(status_code=404, detail="Cohort not found")
-
-    event_id = str(uuid.uuid4())
-    is_zip = len(files) == 1 and files[0].filename.lower().endswith(".zip")
-
-    if is_zip:
-        zip_path = TEMP_DIR / f"{event_id}.zip"
-        async with aiofiles.open(zip_path, "wb") as f:
-            content = await files[0].read()
-            await f.write(content)
-        upload_label = files[0].filename
-
-        resolved_name = event_name or files[0].filename.replace(".zip", "")
-        processing_jobs[event_id] = ProcessingStatus(
-            event_id=event_id, event_name=resolved_name, status="pending",
-            total_photos=0, processed_photos=0,
-            message=f"Uploaded: {upload_label}",
-        )
-        if cohort_id:
-            co.add_event_to_cohort(cohort_id, event_id)
-        background_tasks.add_task(
-            process_event, event_id, str(zip_path), resolved_name, cohort_id,
-        )
-    else:
-        # Individual image files — save directly to event dir
-        event_dir = fe.EVENTS_DIR / event_id
-        event_dir.mkdir(parents=True, exist_ok=True)
-        image_paths = []
-        for upload in files:
-            ext = Path(upload.filename).suffix.lower()
-            if ext not in fe.SUPPORTED_EXTENSIONS:
-                continue
-            dest = event_dir / f"{uuid.uuid4()}{ext}"
-            async with aiofiles.open(dest, "wb") as f:
-                content = await upload.read()
-                await f.write(content)
-            image_paths.append(dest)
-
-        if not image_paths:
-            raise HTTPException(status_code=400, detail="No valid image files found.")
-
-        upload_label = f"{len(image_paths)} foto(s)"
-        resolved_name = event_name or "Evento"
-        processing_jobs[event_id] = ProcessingStatus(
-            event_id=event_id, event_name=resolved_name, status="pending",
-            total_photos=len(image_paths), processed_photos=0,
-            message=f"Uploaded: {upload_label}",
-        )
-        if cohort_id:
-            co.add_event_to_cohort(cohort_id, event_id)
-        background_tasks.add_task(
-            process_event_images, event_id, image_paths,
-            resolved_name,
-            cohort_id,
-        )
-
-    return {"event_id": event_id, "status": "pending"}
-
-
-def process_event(event_id: str, zip_path: str, event_name: str, cohort_id: Optional[str]):
-    from datetime import datetime, timezone
-    try:
-        processing_jobs[event_id].status = "processing"
-        processing_jobs[event_id].message = "Extracting photos..."
-
-        event_dir, image_paths = fe.extract_zip(zip_path, event_id)
-        total = len(image_paths)
-        processing_jobs[event_id].total_photos = total
-        processing_jobs[event_id].message = f"Processing {total} photos..."
-
-        if total == 0:
-            processing_jobs[event_id].status = "error"
-            processing_jobs[event_id].message = "No images found in ZIP."
-            return
-
-        def status_cb(i, total, filename):
-            processing_jobs[event_id].processed_photos = i
-            processing_jobs[event_id].message = f"({i}/{total}) {filename}"
-
-        result = fe.preprocess_event_faces(event_id, image_paths, status_callback=status_cb)
-
-        result_meta = {
-            "event_id": event_id,
-            "event_name": event_name,
-            "cohort_id": cohort_id,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "total_photos": result["total_photos"],
-            "indexed_faces": result["indexed_faces"],
-        }
-        result_path = fe.RESULTS_DIR / event_id / "result.json"
-        with open(result_path, "w") as f:
-            json.dump(result_meta, f, indent=2)
-
-        processing_jobs[event_id].status = "done"
-        processing_jobs[event_id].processed_photos = total
-        processing_jobs[event_id].message = (
-            f"Listo. {result['total_photos']} fotos indexadas, "
-            f"{result['indexed_faces']} caras detectadas."
-        )
-        Path(zip_path).unlink(missing_ok=True)
-
-    except Exception as e:
-        logger.exception(f"Error processing event {event_id}")
-        processing_jobs[event_id].status = "error"
-        processing_jobs[event_id].message = str(e)
-
-
-def process_event_images(event_id: str, image_paths: list, event_name: str, cohort_id: Optional[str]):
-    from datetime import datetime, timezone
-    try:
-        processing_jobs[event_id].status = "processing"
-        total = len(image_paths)
-        processing_jobs[event_id].total_photos = total
-        processing_jobs[event_id].message = f"Processing {total} photos..."
-
-        def status_cb(i, total, filename):
-            processing_jobs[event_id].processed_photos = i
-            processing_jobs[event_id].message = f"({i}/{total}) {filename}"
-
-        result = fe.preprocess_event_faces(event_id, image_paths, status_callback=status_cb)
-
-        result_meta = {
-            "event_id": event_id,
-            "event_name": event_name,
-            "cohort_id": cohort_id,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "total_photos": result["total_photos"],
-            "indexed_faces": result["indexed_faces"],
-        }
-        result_path = fe.RESULTS_DIR / event_id / "result.json"
-        with open(result_path, "w") as f:
-            json.dump(result_meta, f, indent=2)
-
-        processing_jobs[event_id].status = "done"
-        processing_jobs[event_id].processed_photos = total
-        processing_jobs[event_id].message = (
-            f"Listo. {result['total_photos']} fotos indexadas, "
-            f"{result['indexed_faces']} caras detectadas."
-        )
-    except Exception as e:
-        logger.exception(f"Error processing event images {event_id}")
-        processing_jobs[event_id].status = "error"
-        processing_jobs[event_id].message = str(e)
-
-
-@app.get("/api/events/{event_id}/status", response_model=ProcessingStatus)
-async def get_event_status(event_id: str):
-    if event_id not in processing_jobs:
-        raise HTTPException(status_code=404, detail="Event not found")
-    return processing_jobs[event_id]
-
-
-@app.get("/api/events/{event_id}/results")
-async def get_event_results(event_id: str):
-    result_path = fe.RESULTS_DIR / event_id / "result.json"
-    if not result_path.exists():
-        raise HTTPException(status_code=404, detail="Results not ready yet")
-    with open(result_path) as f:
-        data = json.load(f)
-    return {
-        "event_id": event_id,
-        "event_name": data.get("event_name", event_id),
-        "cohort_id": data.get("cohort_id"),
-        "total_photos": data.get("total_photos", 0),
-        "indexed_faces": data.get("indexed_faces", 0),
-        "created_at": data.get("created_at", ""),
-    }
-
-
-@app.get("/api/events/{event_id}/download/{participant_id}")
-async def download_participant_photos(event_id: str, participant_id: str):
-    zip_path = fe.create_result_zip(event_id, participant_id)
-    if not zip_path:
-        raise HTTPException(status_code=404, detail="No matched photos found")
-    participants = {p["id"]: p for p in fe.list_participants()}
-    name = participants.get(participant_id, {}).get("name", participant_id)
-    return FileResponse(path=str(zip_path), filename=f"{name.replace(' ','_')}_photos.zip",
-                        media_type="application/zip")
-
-
-@app.get("/api/events/{event_id}/download-all")
-async def download_all_results(event_id: str):
-    zip_path = fe.create_full_result_zip(event_id)
-    if not zip_path:
-        raise HTTPException(status_code=404, detail="No results found")
-    return FileResponse(path=str(zip_path), filename="facematch_results.zip",
-                        media_type="application/zip")
-
-
-@app.get("/api/events/{event_id}/manifest")
-async def download_manifest(event_id: str):
-    """Export a CSV with all participants and their reference photo status."""
-    result_path = fe.RESULTS_DIR / event_id / "result.json"
-    if not result_path.exists():
-        raise HTTPException(status_code=404, detail="Results not ready yet")
-
-    with open(result_path) as f:
-        data = json.load(f)
-
-    participants = fe.list_participants()
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["name", "phone", "company", "has_reference_photo"])
-    for p in participants:
-        writer.writerow([
-            p.get("name", ""),
-            p.get("phone", ""),
-            p.get("company", ""),
-            "si" if fe.get_reference_photo_path(p["id"]) else "no",
-        ])
-    output.seek(0)
-
-    event_name = data.get("event_name", event_id).replace(" ", "_")
-    return StreamingResponse(
-        output,
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={event_name}_participantes.csv"},
-    )
-
-
-@app.delete("/api/events/{event_id}")
-async def delete_event(event_id: str):
-    import shutil
-    result_path = fe.RESULTS_DIR / event_id / "result.json"
-    cohort_id = None
-    if result_path.exists():
-        with open(result_path) as f:
-            data = json.load(f)
-        cohort_id = data.get("cohort_id")
-
-    if cohort_id:
-        co.remove_event_from_cohort(cohort_id, event_id)
-
-    # Clean up Rekognition collection
-    await run_in_threadpool(fe.delete_event_collection, event_id)
-
-    results_dir = fe.RESULTS_DIR / event_id
-    if results_dir.exists():
-        shutil.rmtree(results_dir)
-
-    events_dir = fe.RESULTS_DIR.parent / "events" / event_id
-    if events_dir.exists():
-        shutil.rmtree(events_dir)
-
-    processing_jobs.pop(event_id, None)
-    return {"ok": True}
-
-
-@app.get("/api/events")
-async def list_events():
-    events = []
-    if fe.RESULTS_DIR.exists():
-        for d in sorted(fe.RESULTS_DIR.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
-            if d.is_dir():
-                rp = d / "result.json"
-                if rp.exists():
-                    with open(rp) as f:
-                        data = json.load(f)
-                    status = processing_jobs.get(d.name)
-                    events.append({
-                        "event_id": d.name,
-                        "event_name": data.get("event_name", d.name),
-                        "cohort_id": data.get("cohort_id"),
-                        "status": status.status if status else "done",
-                        "total_photos": data.get("total_photos", 0),
-                        "indexed_faces": data.get("indexed_faces", 0),
-                        "created_at": data.get("created_at", ""),
-                    })
-    return events
-
-
-# ═══════════════════════════════════════════════════════════════════
-# PORTAL (public — no auth required)
+# PORTAL (public — cohort-pool only)
 # ═══════════════════════════════════════════════════════════════════
 
 @app.get("/api/portal/cohorts")
 async def list_portal_cohorts():
-    """Public: list all cohorts that have at least one processed event."""
+    """Public: list all cohorts that have at least one indexed photo."""
     raw = co.list_cohorts()
     result = []
     for c in raw:
-        event_ids = c.get("event_ids", [])
-        total_photos = 0
-        for eid in event_ids:
-            rp = fe.RESULTS_DIR / eid / "result.json"
-            if rp.exists():
-                with open(rp) as f:
-                    d = json.load(f)
-                total_photos += d.get("total_photos", 0)
+        s = co.stats(c["id"])
+        if s["total_photos"] == 0:
+            continue
         result.append({
             "cohort_id": c["id"],
             "cohort_name": c["name"],
             "program": c.get("program"),
             "cover_color": c.get("cover_color"),
-            "total_photos": total_photos,
-            "event_count": len([e for e in event_ids if (fe.RESULTS_DIR / e / "result.json").exists()]),
+            "total_photos": s["total_photos"],
         })
     return result
 
 
 @app.get("/api/cohorts/{cohort_id}/portal-info")
 async def get_cohort_portal_info(cohort_id: str):
-    """Public endpoint: cohort info + event list for the participant portal."""
     c = co.get_cohort(cohort_id)
     if not c:
         raise HTTPException(status_code=404, detail="Cohort no encontrado")
-    events = []
-    for eid in c.get("event_ids", []):
-        rp = fe.RESULTS_DIR / eid / "result.json"
-        if rp.exists():
-            with open(rp) as f:
-                d = json.load(f)
-            events.append({
-                "event_id": eid,
-                "event_name": d.get("event_name", eid),
-                "total_photos": d.get("total_photos", 0),
-            })
+    s = co.stats(cohort_id)
     return {
         "cohort_id": cohort_id,
         "cohort_name": c["name"],
         "program": c.get("program"),
-        "events": events,
+        "total_photos": s["total_photos"],
     }
-
-
-@app.get("/api/events/{event_id}/photos")
-async def list_event_photos(event_id: str):
-    """List all photo filenames for an event."""
-    event_dir = fe.EVENTS_DIR / event_id
-    if not event_dir.exists():
-        return {"photos": []}
-    photos = sorted([
-        p.name for p in event_dir.iterdir()
-        if fe._is_image(p) and not p.name.endswith(".thumb.jpg")
-    ])
-    return {"photos": photos}
-
-
-@app.delete("/api/events/{event_id}/photo/{filename}")
-async def delete_event_photo(event_id: str, filename: str):
-    """Delete a single photo from an event and remove it from the face index."""
-    safe_name = Path(filename).name
-    photo_path = fe.EVENTS_DIR / event_id / safe_name
-    if not photo_path.exists():
-        raise HTTPException(status_code=404, detail="Foto no encontrada")
-
-    photo_path.unlink()
-
-    # Remove from face_index.json
-    index_path = fe.RESULTS_DIR / event_id / "face_index.json"
-    if index_path.exists():
-        with open(index_path) as f:
-            data = json.load(f)
-        data["index"].pop(safe_name, None)
-        data["photo_count"] = max(0, data.get("photo_count", 1) - 1)
-        with open(index_path, "w") as f:
-            json.dump(data, f)
-
-    # Update result.json stats
-    result_path = fe.RESULTS_DIR / event_id / "result.json"
-    if result_path.exists():
-        with open(result_path) as f:
-            result = json.load(f)
-        result["total_photos"] = max(0, result.get("total_photos", 1) - 1)
-        result["indexed_faces"] = sum(len(v) for v in data["index"].values()) if index_path.exists() else 0
-        with open(result_path, "w") as f:
-            json.dump(result, f, indent=2)
-
-    return {"ok": True}
-
-
-@app.get("/api/events/{event_id}/info")
-async def get_event_info(event_id: str):
-    """Public endpoint: returns basic event info for the participant portal."""
-    result_path = fe.RESULTS_DIR / event_id / "result.json"
-    if not result_path.exists():
-        raise HTTPException(status_code=404, detail="Evento no encontrado o aún procesando")
-    with open(result_path) as f:
-        data = json.load(f)
-    return {
-        "event_id": event_id,
-        "event_name": data.get("event_name", event_id),
-        "total_photos": data.get("total_photos", 0),
-        "indexed_faces": data.get("indexed_faces", 0),
-    }
-
-
-@app.post("/api/events/{event_id}/match-selfie")
-async def match_selfie(
-    event_id: str,
-    file: UploadFile = File(...),
-    threshold: Optional[float] = Form(None),
-):
-    """Public endpoint: participant uploads a selfie, gets back matched photo filenames."""
-    result_path = fe.RESULTS_DIR / event_id / "result.json"
-    if not result_path.exists():
-        raise HTTPException(status_code=404, detail="Evento no encontrado o aún procesando")
-
-    # Clamp threshold to a safe range to avoid abuse
-    if threshold is not None:
-        threshold = max(0.30, min(0.80, threshold))
-
-    selfie_id = str(uuid.uuid4())
-    ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
-    if ext not in fe.SUPPORTED_EXTENSIONS:
-        ext = ".jpg"
-    selfie_path = TEMP_DIR / f"selfie_{selfie_id}{ext}"
-    async with aiofiles.open(selfie_path, "wb") as f:
-        content = await file.read()
-        await f.write(content)
-
-    try:
-        matched = await run_in_threadpool(
-            fe.match_selfie_to_event, event_id, str(selfie_path), threshold
-        )
-    except Exception as e:
-        logger.exception(f"Error matching selfie for event {event_id}")
-        matched = []
-    finally:
-        selfie_path.unlink(missing_ok=True)
-
-    return {"matched_photos": matched, "count": len(matched)}
 
 
 @app.post("/api/cohorts/{cohort_id}/match-selfie")
@@ -878,101 +517,67 @@ async def match_selfie_in_cohort(
     file: UploadFile = File(...),
     threshold: Optional[float] = Form(None),
 ):
-    """Public: search a selfie across ALL events in a cohort, grouped by event."""
-    import asyncio
-
+    """Public: search a selfie against the cohort's single Rekognition collection."""
     c = co.get_cohort(cohort_id)
     if not c:
         raise HTTPException(status_code=404, detail="Cohort no encontrado")
-
     if threshold is not None:
         threshold = max(0.30, min(0.80, threshold))
 
-    # Gather events that have been processed
-    processed_events = []
-    for eid in c.get("event_ids", []):
-        rp = fe.RESULTS_DIR / eid / "result.json"
-        if rp.exists():
-            with open(rp) as f:
-                d = json.load(f)
-            processed_events.append({
-                "event_id": eid,
-                "event_name": d.get("event_name", eid),
-                "created_at": d.get("created_at", ""),
-            })
-
-    if not processed_events:
-        return {"events": [], "total_matches": 0}
-
-    selfie_id = str(uuid.uuid4())
-    ext = Path(file.filename).suffix.lower() if file.filename else ".jpg"
+    selfie_id = uuid.uuid4().hex
+    ext = Path(file.filename or "").suffix.lower() or ".jpg"
     if ext not in fe.SUPPORTED_EXTENSIONS:
         ext = ".jpg"
     selfie_path = TEMP_DIR / f"selfie_{selfie_id}{ext}"
     async with aiofiles.open(selfie_path, "wb") as f:
-        content = await file.read()
-        await f.write(content)
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            await f.write(chunk)
 
     try:
-        tasks = [
-            run_in_threadpool(fe.match_selfie_to_event, ev["event_id"], str(selfie_path), threshold)
-            for ev in processed_events
-        ]
-        results_per_event = await asyncio.gather(*tasks, return_exceptions=True)
+        matched = await run_in_threadpool(
+            fe.match_selfie_to_cohort, cohort_id, str(selfie_path), threshold
+        )
+    except Exception:
+        logger.exception(f"Cohort selfie match failed for {cohort_id}")
+        matched = []
     finally:
         selfie_path.unlink(missing_ok=True)
 
-    events = []
-    total = 0
-    for ev, matched in zip(processed_events, results_per_event):
-        if isinstance(matched, Exception):
-            logger.warning(f"Selfie match failed for event {ev['event_id']}: {matched}")
-            matched = []
-        events.append({
-            "event_id": ev["event_id"],
-            "event_name": ev["event_name"],
-            "created_at": ev["created_at"],
-            "matched_photos": matched,
-            "count": len(matched),
-        })
-        total += len(matched)
-
-    # Sort events chronologically so results read Day 1 → Day 2 → Day 3
-    events.sort(key=lambda e: e["created_at"] or "")
-    return {"events": events, "total_matches": total}
-
-
-@app.post("/api/events/{event_id}/regenerate-thumbnails")
-async def regenerate_thumbnails(event_id: str, background_tasks: BackgroundTasks):
-    """Admin: backfill thumbnails for an event's existing photos (idempotent)."""
-    if not (fe.EVENTS_DIR / event_id).exists():
-        raise HTTPException(status_code=404, detail="Evento no encontrado")
-    background_tasks.add_task(fe.make_thumbnails_for_event, event_id)
-    return {"status": "queued"}
+    return {"matched_photos": matched, "count": len(matched)}
 
 
 @app.post("/api/cohorts/{cohort_id}/download-selection")
 async def download_cohort_selection(cohort_id: str, payload: dict):
-    """Public: stream a ZIP of selected photos across a cohort's events."""
+    """Public: stream a ZIP with the user-selected photos from the cohort pool."""
     import zipfile
     from io import BytesIO
     c = co.get_cohort(cohort_id)
     if not c:
         raise HTTPException(status_code=404, detail="Cohort no encontrado")
-    selections = payload.get("selections") or []
-    allowed_events = set(c.get("event_ids", []))
+
+    raw_selections = payload.get("selections") or []
+    # Accept either ["filename", ...] or [{"filename": "..."}] for compatibility.
+    filenames = []
+    for sel in raw_selections:
+        if isinstance(sel, str):
+            filenames.append(Path(sel).name)
+        elif isinstance(sel, dict) and sel.get("filename"):
+            filenames.append(Path(sel["filename"]).name)
+
+    if not filenames:
+        # No selection provided → ZIP everything in the pool.
+        filenames = co.list_photo_filenames(cohort_id)
+
+    pdir = co.photos_dir(cohort_id)
     buf = BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for sel in selections:
-            eid = sel.get("event_id")
-            fname = Path(sel.get("filename", "")).name
-            if not eid or not fname or eid not in allowed_events:
-                continue
-            src = fe.EVENTS_DIR / eid / fname
-            if not src.exists():
-                continue
-            arc = f"{eid[:8]}/{fname}" if len(selections) > 1 else fname
-            zf.write(src, arc)
+        for fname in filenames:
+            src = pdir / fname
+            if src.exists():
+                zf.write(src, fname)
     buf.seek(0)
     safe_name = (c.get("name") or "fotos").replace(" ", "_")
     return StreamingResponse(
@@ -982,74 +587,34 @@ async def download_cohort_selection(cohort_id: str, payload: dict):
     )
 
 
-@app.get("/api/events/{event_id}/photo/{filename}")
-async def get_event_photo(
-    event_id: str,
-    filename: str,
-    download: Optional[int] = 0,
-    thumb: Optional[int] = 0,
-):
-    """Public endpoint: serve an individual event photo by filename.
-    - ?thumb=1   → small JPEG (lazy-generated if missing). Used by the portal grid.
-    - ?download=1 → force `Content-Disposition: attachment` (cross-origin downloads).
-    """
-    safe_filename = Path(filename).name  # prevent path traversal
-    photo_path = fe.EVENTS_DIR / event_id / safe_filename
-    if not photo_path.exists():
-        raise HTTPException(status_code=404, detail="Foto no encontrada")
+# ═══════════════════════════════════════════════════════════════════
+# ADMIN
+# ═══════════════════════════════════════════════════════════════════
 
-    if thumb and not download:
-        thumb_path = fe.thumb_path_for(photo_path)
-        if not thumb_path.exists():
-            generated = await run_in_threadpool(fe.make_thumbnail, photo_path)
-            if generated and generated.exists():
-                thumb_path = generated
-        if thumb_path.exists():
-            return FileResponse(
-                str(thumb_path),
-                media_type="image/jpeg",
-                headers={"Cache-Control": "public, max-age=31536000, immutable"},
-            )
-        # fall through to original on failure
-
-    if download:
-        return FileResponse(
-            str(photo_path),
-            filename=safe_filename,
-            headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
-        )
-    return FileResponse(str(photo_path))
+@app.post("/api/admin/wipe")
+async def admin_wipe(confirm: str = Form(...)):
+    """Destructive: clears all cohorts on disk + every Rekognition collection.
+    Requires `confirm=YES_WIPE` to prevent accidents."""
+    import shutil
+    if confirm != "YES_WIPE":
+        raise HTTPException(status_code=400, detail="Set confirm=YES_WIPE to proceed.")
+    # Remove all on-disk data EXCEPT temp (which is just scratch space)
+    for sub in ("cohorts", "events", "results", "participants"):
+        d = STORAGE_BASE / sub
+        if d.exists():
+            shutil.rmtree(d, ignore_errors=True)
+    (STORAGE_BASE / "cohorts").mkdir(parents=True, exist_ok=True)
+    # Wipe Rekognition collections
+    await run_in_threadpool(fe.wipe_all_rekognition_collections)
+    return {"ok": True}
 
 
-@app.post("/api/events/{event_id}/add-photos")
-async def add_photos_to_event(
-    event_id: str,
-    background_tasks: BackgroundTasks,
-    files: List[UploadFile] = File(...),
-):
-    """Public endpoint: participant adds their own photos to the event pool."""
-    result_path = fe.RESULTS_DIR / event_id / "result.json"
-    if not result_path.exists():
-        raise HTTPException(status_code=404, detail="Evento no encontrado")
+# ── Legacy event endpoints — return 410 so old clients fail fast and obviously
+@app.post("/api/events/upload")
+async def _deprecated_event_upload():
+    raise HTTPException(status_code=410, detail="Eventos eliminados — usa POST /api/cohorts/{id}/photos")
 
-    event_dir = fe.EVENTS_DIR / event_id
-    event_dir.mkdir(parents=True, exist_ok=True)
 
-    saved_paths = []
-    for upload in files:
-        ext = Path(upload.filename).suffix.lower() or ".jpg"
-        if ext not in fe.SUPPORTED_EXTENSIONS:
-            continue
-        dest = event_dir / f"{uuid.uuid4()}{ext}"
-        async with aiofiles.open(dest, "wb") as f:
-            content = await upload.read()
-            await f.write(content)
-        saved_paths.append(dest)
-
-    if saved_paths:
-        background_tasks.add_task(fe.add_photos_to_index, event_id, saved_paths)
-
-    return {"added": len(saved_paths)}
 
 
 @app.get("/api/health")

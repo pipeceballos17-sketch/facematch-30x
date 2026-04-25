@@ -27,7 +27,24 @@ api.interceptors.response.use(
 export const listCohorts = () => api.get("/api/cohorts").then(r => r.data);
 export const createCohort = (formData) => api.post("/api/cohorts", formData).then(r => r.data);
 export const deleteCohort = (id) => api.delete(`/api/cohorts/${id}`).then(r => r.data);
-export const getCohortEvents = (cohortId) => api.get(`/api/cohorts/${cohortId}/events`).then(r => r.data);
+
+// Cohort photo pool (the new model — everything lives here)
+export const listCohortPhotos = (cohortId) =>
+  api.get(`/api/cohorts/${cohortId}/photos`).then(r => r.data);
+
+export const uploadCohortPhotos = (cohortId, files, onProgress) => {
+  const fd = new FormData();
+  (Array.isArray(files) ? files : [files]).forEach(f => fd.append("files", f));
+  return api.post(`/api/cohorts/${cohortId}/photos`, fd, {
+    onUploadProgress: onProgress,
+  }).then(r => r.data);
+};
+
+export const deleteCohortPhoto = (cohortId, filename) =>
+  api.delete(`/api/cohorts/${cohortId}/photo/${encodeURIComponent(filename)}`).then(r => r.data);
+
+export const getCohortPhotoUrl = (cohortId, filename) =>
+  `${api.defaults.baseURL}/api/cohorts/${cohortId}/photo/${encodeURIComponent(filename)}`;
 
 // ── Participants ───────────────────────────────────────────────────
 export const getParticipants = () => api.get("/api/participants").then(r => r.data);
@@ -61,52 +78,12 @@ export const getCSVImportStatus = (importId) =>
 export const csvTemplateUrl = () =>
   `${api.defaults.baseURL}/api/participants/csv-template`;
 
-// ── Events & matching ──────────────────────────────────────────────
-export const uploadEventFiles = (files, eventName, cohortId, onProgress) => {
-  const fd = new FormData();
-  const fileArray = Array.isArray(files) ? files : [files];
-  fileArray.forEach(f => fd.append("files", f));
-  if (eventName) fd.append("event_name", eventName);
-  if (cohortId)  fd.append("cohort_id", cohortId);
-  return api.post("/api/events/upload", fd, { onUploadProgress: onProgress }).then(r => r.data);
-};
-export const getEventStatus = (eventId) =>
-  api.get(`/api/events/${eventId}/status`).then(r => r.data);
-export const getEventResults = (eventId) =>
-  api.get(`/api/events/${eventId}/results`).then(r => r.data);
-export const listEvents = () => api.get("/api/events").then(r => r.data);
-
-export const deleteEvent = (id) => api.delete(`/api/events/${id}`).then(r => r.data);
-
-export const getDownloadUrl    = (eventId, participantId) =>
-  `${api.defaults.baseURL}/api/events/${eventId}/download/${participantId}`;
-export const getAllDownloadUrl  = (eventId) =>
-  `${api.defaults.baseURL}/api/events/${eventId}/download-all`;
-export const getManifestUrl    = (eventId) =>
-  `${api.defaults.baseURL}/api/events/${eventId}/manifest`;
-
 // ── Portal (public participant endpoints) ──────────────────────────
 export const listPortalCohorts = () =>
   api.get("/api/portal/cohorts").then(r => r.data);
 
 export const getCohortPortalInfo = (cohortId) =>
   api.get(`/api/cohorts/${cohortId}/portal-info`).then(r => r.data);
-
-export const getEventInfo = (eventId) =>
-  api.get(`/api/events/${eventId}/info`).then(r => r.data);
-
-export const getEventPhotos = (eventId) =>
-  api.get(`/api/events/${eventId}/photos`).then(r => r.data);
-
-export const deleteEventPhoto = (eventId, filename) =>
-  api.delete(`/api/events/${eventId}/photo/${encodeURIComponent(filename)}`).then(r => r.data);
-
-export const matchSelfie = (eventId, file, threshold = null) => {
-  const fd = new FormData();
-  fd.append("file", file);
-  if (threshold !== null) fd.append("threshold", threshold);
-  return api.post(`/api/events/${eventId}/match-selfie`, fd).then(r => r.data);
-};
 
 export const matchSelfieInCohort = (cohortId, file, threshold = null) => {
   const fd = new FormData();
@@ -115,16 +92,7 @@ export const matchSelfieInCohort = (cohortId, file, threshold = null) => {
   return api.post(`/api/cohorts/${cohortId}/match-selfie`, fd).then(r => r.data);
 };
 
-export const getEventPhotoUrl = (eventId, filename) =>
-  `${api.defaults.baseURL}/api/events/${eventId}/photo/${encodeURIComponent(filename)}`;
-
 export const downloadCohortSelection = (cohortId, selections) =>
   api.post(`/api/cohorts/${cohortId}/download-selection`, { selections }, {
     responseType: "blob",
   }).then(r => r.data);
-
-export const addEventPhotos = (eventId, files) => {
-  const fd = new FormData();
-  files.forEach(f => fd.append("files", f));
-  return api.post(`/api/events/${eventId}/add-photos`, fd).then(r => r.data);
-};

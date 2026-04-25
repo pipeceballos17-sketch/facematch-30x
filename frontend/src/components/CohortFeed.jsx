@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import {
-  Plus, FolderOpen, Camera, Users, Image, ChevronRight,
+  Plus, FolderOpen, Users, Image, ChevronRight,
   Trash2, Calendar
 } from "lucide-react";
 import { listCohorts, deleteCohort } from "../api";
@@ -50,9 +50,8 @@ function CohortCard({ cohort, onClick, onDelete }) {
         )}
 
         <div className="flex gap-4 mt-4">
-          <Stat icon={Camera}  value={cohort.event_count}          label="eventos" />
-          <Stat icon={Image}   value={cohort.matched_photos}       label="fotos" />
-          <Stat icon={Users}   value={cohort.matched_participants} label="caras" />
+          <Stat icon={Image}   value={cohort.total_photos || 0}    label="fotos" />
+          <Stat icon={Users}   value={cohort.indexed_faces || 0}   label="caras" />
         </div>
 
         <div className="flex items-center justify-between mt-4 pt-4 border-t border-x-border">
