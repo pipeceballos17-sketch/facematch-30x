@@ -559,10 +559,11 @@ function CohortPortal({ cohortId }) {
                             }}
                           >
                             <img
-                              src={getEventPhotoUrl(ev.event_id, filename)}
+                              src={`${getEventPhotoUrl(ev.event_id, filename)}?thumb=1`}
                               alt={filename}
                               className="w-full aspect-square object-cover"
                               loading="lazy"
+                              decoding="async"
                               draggable={false}
                               style={{ opacity: isSelected ? 0.88 : 1 }}
                             />

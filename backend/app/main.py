@@ -779,7 +779,10 @@ async def list_event_photos(event_id: str):
     event_dir = fe.EVENTS_DIR / event_id
     if not event_dir.exists():
         return {"photos": []}
-    photos = sorted([p.name for p in event_dir.iterdir() if fe._is_image(p)])
+    photos = sorted([
+        p.name for p in event_dir.iterdir()
+        if fe._is_image(p) and not p.name.endswith(".thumb.jpg")
+    ])
     return {"photos": photos}
 
 
@@ -939,6 +942,15 @@ async def match_selfie_in_cohort(
     return {"events": events, "total_matches": total}
 
 
+@app.post("/api/events/{event_id}/regenerate-thumbnails")
+async def regenerate_thumbnails(event_id: str, background_tasks: BackgroundTasks):
+    """Admin: backfill thumbnails for an event's existing photos (idempotent)."""
+    if not (fe.EVENTS_DIR / event_id).exists():
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+    background_tasks.add_task(fe.make_thumbnails_for_event, event_id)
+    return {"status": "queued"}
+
+
 @app.post("/api/cohorts/{cohort_id}/download-selection")
 async def download_cohort_selection(cohort_id: str, payload: dict):
     """Public: stream a ZIP of selected photos across a cohort's events."""
@@ -971,13 +983,35 @@ async def download_cohort_selection(cohort_id: str, payload: dict):
 
 
 @app.get("/api/events/{event_id}/photo/{filename}")
-async def get_event_photo(event_id: str, filename: str, download: Optional[int] = 0):
+async def get_event_photo(
+    event_id: str,
+    filename: str,
+    download: Optional[int] = 0,
+    thumb: Optional[int] = 0,
+):
     """Public endpoint: serve an individual event photo by filename.
-    Pass ?download=1 to force an attachment download (works cross-origin)."""
+    - ?thumb=1   → small JPEG (lazy-generated if missing). Used by the portal grid.
+    - ?download=1 → force `Content-Disposition: attachment` (cross-origin downloads).
+    """
     safe_filename = Path(filename).name  # prevent path traversal
     photo_path = fe.EVENTS_DIR / event_id / safe_filename
     if not photo_path.exists():
         raise HTTPException(status_code=404, detail="Foto no encontrada")
+
+    if thumb and not download:
+        thumb_path = fe.thumb_path_for(photo_path)
+        if not thumb_path.exists():
+            generated = await run_in_threadpool(fe.make_thumbnail, photo_path)
+            if generated and generated.exists():
+                thumb_path = generated
+        if thumb_path.exists():
+            return FileResponse(
+                str(thumb_path),
+                media_type="image/jpeg",
+                headers={"Cache-Control": "public, max-age=31536000, immutable"},
+            )
+        # fall through to original on failure
+
     if download:
         return FileResponse(
             str(photo_path),

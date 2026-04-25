@@ -64,6 +64,44 @@ def _normalize_image(image_path: str):
         logger.warning(f"Could not normalize {image_path}: {e}")
 
 
+THUMB_MAX_SIZE = 720  # px on the long edge — keeps grid sharp on retina
+
+def thumb_path_for(photo_path: Path) -> Path:
+    """Companion thumbnail file path for a given photo."""
+    return photo_path.with_suffix(photo_path.suffix + ".thumb.jpg")
+
+
+def make_thumbnail(photo_path: Path) -> Optional[Path]:
+    """Generate a small JPEG thumbnail next to the original. Idempotent."""
+    if not photo_path.exists():
+        return None
+    dest = thumb_path_for(photo_path)
+    if dest.exists() and dest.stat().st_mtime >= photo_path.stat().st_mtime:
+        return dest
+    try:
+        from PIL import Image, ImageOps
+        img = Image.open(photo_path)
+        img = ImageOps.exif_transpose(img)
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        img.thumbnail((THUMB_MAX_SIZE, THUMB_MAX_SIZE))
+        img.save(dest, "JPEG", quality=78, optimize=True, progressive=True)
+        return dest
+    except Exception as e:
+        logger.warning(f"Could not generate thumbnail for {photo_path}: {e}")
+        return None
+
+
+def make_thumbnails_for_event(event_id: str):
+    """Generate thumbnails for every photo in an event. Safe to re-run."""
+    event_dir = EVENTS_DIR / event_id
+    if not event_dir.exists():
+        return
+    for p in event_dir.iterdir():
+        if p.is_file() and _is_image(p) and not p.name.endswith(".thumb.jpg"):
+            make_thumbnail(p)
+
+
 def _collection_id(event_id: str) -> str:
     """Rekognition collection IDs: alphanumeric + _ - , max 255 chars."""
     return f"fm-{event_id}"
@@ -207,6 +245,9 @@ def preprocess_event_faces(
         except Exception as e:
             logger.warning(f"Could not index {img_path.name}: {e}")
 
+        # Generate the thumbnail used by the participant portal grid.
+        make_thumbnail(img_path)
+
     result_dir = RESULTS_DIR / event_id
     result_dir.mkdir(parents=True, exist_ok=True)
 
@@ -316,6 +357,7 @@ def add_photos_to_index(event_id: str, new_paths: List[Path]):
             new_indexed += len(response.get("FaceRecords", []))
         except Exception as e:
             logger.warning(f"Could not index {img_path.name}: {e}")
+        make_thumbnail(img_path)
 
     data["filename_map"] = filename_map
     data["photo_count"] = data.get("photo_count", 0) + len(new_paths)
