@@ -55,6 +55,8 @@ _PUBLIC_RE = re.compile(
     r"|/api/cohorts/[^/]+/portal-info$"
     r"|/api/cohorts/[^/]+/match-selfie$"
     r"|/api/cohorts/[^/]+/download-selection$"
+    r"|/api/cohorts/[^/]+/zip-prepare$"
+    r"|/api/cohorts/[^/]+/zip-download/[^/]+$"
     r"|/api/cohorts/[^/]+/photo/[^/]+$"
     r"|/docs|/openapi\.json|/redoc)"
 )
@@ -649,6 +651,88 @@ async def match_selfie_in_cohort(
         selfie_path.unlink(missing_ok=True)
 
     return {"matched_photos": matched, "count": len(matched)}
+
+
+# ── Cohort ZIP downloads (2-step: prepare → fetch by token) ──────────
+# Old single-shot POST returned the ZIP as a blob, which on iOS Safari often
+# hung when the bundle was 100+ MB (memory + lost user-gesture). New flow:
+# prepare builds the ZIP in temp storage, GET streams it with attachment
+# headers so iOS shows its native download/share sheet.
+import secrets as _secrets
+import time as _time
+ZIP_TOKENS: dict = {}   # token → {path, filename, cohort_id, expiry}
+ZIP_TTL_SECS = 30 * 60  # 30 min
+
+def _sweep_zip_tokens():
+    now = _time.time()
+    expired = [t for t, info in ZIP_TOKENS.items() if info["expiry"] < now]
+    for t in expired:
+        try:
+            Path(ZIP_TOKENS[t]["path"]).unlink(missing_ok=True)
+        except Exception:
+            pass
+        ZIP_TOKENS.pop(t, None)
+
+
+@app.post("/api/cohorts/{cohort_id}/zip-prepare")
+async def prepare_cohort_zip(cohort_id: str, payload: dict):
+    """Build the ZIP in a temp file. Returns a token to GET it."""
+    import zipfile
+    c = co.get_cohort(cohort_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Cohort no encontrado")
+
+    raw = payload.get("selections") or []
+    filenames = []
+    for sel in raw:
+        if isinstance(sel, str):
+            filenames.append(Path(sel).name)
+        elif isinstance(sel, dict) and sel.get("filename"):
+            filenames.append(Path(sel["filename"]).name)
+    if not filenames:
+        filenames = co.list_photo_filenames(cohort_id)
+
+    pdir = co.photos_dir(cohort_id)
+    token = _secrets.token_urlsafe(16)
+    safe_name = (c.get("name") or "fotos").replace(" ", "_")
+    download_filename = f"{safe_name}_30X.zip"
+    zip_path = TEMP_DIR / f"zip_{token}.zip"
+
+    def _build():
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for fname in filenames:
+                src = pdir / fname
+                if src.exists():
+                    zf.write(src, fname)
+
+    await run_in_threadpool(_build)
+    _sweep_zip_tokens()
+    ZIP_TOKENS[token] = {
+        "path": str(zip_path),
+        "filename": download_filename,
+        "cohort_id": cohort_id,
+        "expiry": _time.time() + ZIP_TTL_SECS,
+    }
+    return {"token": token, "filename": download_filename, "count": len(filenames)}
+
+
+@app.get("/api/cohorts/{cohort_id}/zip-download/{token}")
+async def download_cohort_zip(cohort_id: str, token: str):
+    info = ZIP_TOKENS.get(token)
+    if not info or info["cohort_id"] != cohort_id:
+        raise HTTPException(status_code=404, detail="ZIP expirado o no encontrado")
+    if _time.time() > info["expiry"]:
+        ZIP_TOKENS.pop(token, None)
+        raise HTTPException(status_code=410, detail="ZIP expirado")
+    p = Path(info["path"])
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="ZIP no encontrado en disco")
+    return FileResponse(
+        str(p),
+        filename=info["filename"],
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{info["filename"]}"'},
+    )
 
 
 @app.post("/api/cohorts/{cohort_id}/download-selection")

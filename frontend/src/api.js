@@ -98,3 +98,14 @@ export const downloadCohortSelection = (cohortId, selections) =>
   api.post(`/api/cohorts/${cohortId}/download-selection`, { selections }, {
     responseType: "blob",
   }).then(r => r.data);
+
+// Two-step ZIP for iOS-friendly downloads. Backend builds the ZIP to disk
+// and returns a token; frontend then GETs by URL (Content-Disposition:
+// attachment), so iPhone shows its native download/share sheet.
+export const prepareCohortZip = (cohortId, selections) =>
+  api.post(`/api/cohorts/${cohortId}/zip-prepare`, { selections }, {
+    timeout: 5 * 60 * 1000,
+  }).then(r => r.data);
+
+export const cohortZipUrl = (cohortId, token) =>
+  `${api.defaults.baseURL}/api/cohorts/${cohortId}/zip-download/${token}`;

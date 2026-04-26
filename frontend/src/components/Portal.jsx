@@ -7,7 +7,7 @@ import {
 import {
   listPortalCohorts, getCohortPortalInfo,
   matchSelfieInCohort, getCohortPhotoUrl,
-  downloadCohortSelection,
+  prepareCohortZip, cohortZipUrl,
 } from "../api";
 
 // iOS-aware download/share. On iPhone <a download> is unreliable for
@@ -17,12 +17,12 @@ import {
 //   2. <a download> — works on desktop + Android
 //   3. Open in new tab — last resort, iOS shows native download UI
 async function shareOrDownloadBlob(blob, filename) {
-  if (!blob) return;
+  if (!blob) return false;
   const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
   if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
-    try { await navigator.share({ files: [file] }); return; }
+    try { await navigator.share({ files: [file] }); return true; }
     catch (e) {
-      if (e?.name === "AbortError") return; // user cancelled — don't fall through
+      if (e?.name === "AbortError") return true; // user cancelled — don't fall through
       // any other error → fall through to <a download>
     }
   }
@@ -35,6 +35,9 @@ async function shareOrDownloadBlob(blob, filename) {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    return true;
+  } catch {
+    return false;
   } finally {
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
@@ -285,28 +288,44 @@ function CohortPortal({ cohortId }) {
       : pool;
     if (selections.length === 0) return;
 
+    // Pre-open the destination tab SYNCHRONOUSLY so iOS keeps the user-gesture
+    // context. We'll point it at the real download URL once we have it.
+    const w = window.open("about:blank", "_blank");
+
     setDownloadingAll(true);
     try {
       if (selections.length === 1) {
-        // Single photo → fetch as blob then share/download. The blob path
-        // works on iOS via Web Share API ("Save to Files / Photos").
+        // Single photo → try Web Share API on iOS (native sheet with
+        // Save to Photos / Save to Files / contacts). Fall back to the
+        // pre-opened tab pointed at the direct backend URL.
         const filename = selections[0];
-        const url = `${getCohortPhotoUrl(cohortId, filename)}?download=1`;
+        const directUrl = `${getCohortPhotoUrl(cohortId, filename)}?download=1`;
+        let shared = false;
         try {
-          const res = await fetch(url, { credentials: "omit" });
-          if (!res.ok) throw new Error("fetch failed");
-          const blob = await res.blob();
-          await shareOrDownloadBlob(blob, filename);
-        } catch {
-          // Network/CORS edge case — fall back to opening the URL directly.
-          openDownloadInNewTab(url);
+          const res = await fetch(directUrl, { credentials: "omit" });
+          if (res.ok) {
+            const blob = await res.blob();
+            shared = await shareOrDownloadBlob(blob, filename);
+          }
+        } catch { /* fall through */ }
+        if (!shared) {
+          if (w) w.location.href = directUrl;
+          else openDownloadInNewTab(directUrl);
+        } else if (w) {
+          w.close();
         }
       } else {
-        const blob = await downloadCohortSelection(cohortId, selections);
-        const safeName = (cohortInfo?.cohort_name || "fotos").replace(/\s+/g, "_");
-        await shareOrDownloadBlob(blob, `${safeName}_30X.zip`);
+        // Multi-photo ZIP → backend builds the file to disk + returns a
+        // token. Pre-opened tab navigates to the download URL → iPhone
+        // shows native download/share sheet without holding any blob in
+        // browser memory.
+        const { token } = await prepareCohortZip(cohortId, selections);
+        const url = cohortZipUrl(cohortId, token);
+        if (w) w.location.href = url;
+        else openDownloadInNewTab(url);
       }
     } catch {
+      if (w) w.close();
       setMatchError("No pudimos preparar la descarga. Intenta de nuevo.");
     } finally {
       setDownloadingAll(false);
